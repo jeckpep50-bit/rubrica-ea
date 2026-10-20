@@ -101,7 +101,8 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   var S = { boot: null, view: '', id: null, det: null, filtro: { q: '', estado: '', trim: 0 }, labFiltro: { trim: 0 }, resTrim: 0, res: null, resOrden: 'desc', resQ: '',
     tick: null, confirm: '', draft: null, rev: null, editDoc: null, form: {}, err: '', busy: false,
-    v: '', cacheDet: {}, resCache: {}, watch: null, refrescando: false };
+    v: '', cacheDet: {}, resCache: {}, watch: null, refrescando: false,
+    regF: { q: '', sub: '', niv: '', est: '', per: '' } };
 
   /* ---------------- utilidades ---------------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -198,19 +199,20 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   function strip(t, cls) { return '<span class="strip ' + (cls || '') + '">' + esc(t) + '</span>'; }
 
   /* ---------------- estructura ---------------- */
-  var NAV = [['visitas', 'Visitas'], ['laboratorios', 'Laboratorios'], ['resultados', 'Resultados'], ['docentes', 'Docentes'], ['|'], ['rubrica', 'Rúbrica'], ['guia', 'Guía del evaluador'], ['conversacion', 'Conversación 1 a 1'], ['glosario', 'Glosario']];
+  var NAV = [['visitas', 'Visitas'], ['registros', 'Registros de evaluación'], ['laboratorios', 'Laboratorios'], ['resultados', 'Resultados'], ['docentes', 'Docentes'], ['|'], ['rubrica', 'Rúbrica'], ['conversacion', 'Conversación 1 a 1']];
   function shell() {
     var anio = S.boot ? S.boot.config.anio : '';
     $('#app').innerHTML =
-      '<div class="wash" aria-hidden="true"></div>' +
-      '<header class="top"><div class="wrap gut">' +
-      '<img class="logo full" src="' + REA_LOGO + '" alt="Eight Academy · Unidad Educativa">' +
-      '<img class="logo sym" src="' + REA_LOGO_SYM + '" alt="Eight Academy">' +
-      '<div class="app"><b>Rúbrica EA</b><span>Experiencias de Aprendizaje · ' + esc(anio) + '</span></div>' +
+      '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>' +
+      '<header class="topbar"><div class="wrap gut">' +
+      '<span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span>' +
+      '<div class="t"><b>Rúbrica EA</b><span>Experiencias de Aprendizaje · Eight Academy' + (anio ? ' · ' + esc(anio) : '') + '</span></div>' +
       '<div class="who" id="who"></div></div></header>' +
       (!DEMO ? '' : '<div class="demo-band"><div class="wrap gut"><b>Demostración con datos de ejemplo.</b><span>Nada se guarda: al recargar vuelve al inicio. Cambia de evaluador arriba para ver cómo trabajan los tres.</span></div></div>') +
-      '<div class="navbar"><nav class="nav wrap gut" id="nav" aria-label="Secciones"></nav><div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>' +
+      '<div class="navbar"><div class="wrap gut"><nav class="nav" id="nav" aria-label="Secciones"></nav></div></div>' +
       '<main><div class="wrap gut" id="view"></div></main>' +
+      '<footer class="footer"><div class="wrap gut">Eight Academy · Unidad Educativa — We are the change.' + (DEMO ? '' : ' · <a href="privacidad.html">Aviso de privacidad</a>') + '</div></footer>' +
+      '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>' +
       '<div id="toast" class="toast" hidden role="status" aria-live="polite"></div>';
   }
   function renderWho() {
@@ -221,7 +223,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
         return '<option value="' + i + '"' + (i === window.REA_DEMO.actual ? ' selected' : '') + '>' + esc(x.etiqueta) + '</option>';
       }).join('') + '</select></label>';
     }
-    h += '<span class="mail">' + esc(u.email) + '</span><span class="role">' + (u.role === 'evaluador' ? 'Evaluador' : 'Lectura') + '</span>';
+    h += '<span class="av" aria-hidden="true">' + esc((u.nombre || u.email || '?').charAt(0).toUpperCase()) + '</span><span class="mail">' + esc(u.email) + '</span><span class="role">' + (u.role === 'evaluador' ? 'Evaluador' : 'Lectura') + '</span>';
     if (!DEMO) h += '<button class="salir" type="button" data-act="salir">Salir</button>';
     $('#who').innerHTML = h;
   }
@@ -251,9 +253,8 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (v === 'resultados') return vResultados();
     if (v === 'docentes') return vDocentes();
     if (v === 'rubrica') return vRubrica();
-    if (v === 'guia') return vGuia();
     if (v === 'conversacion') return vConversacion();
-    if (v === 'glosario') return vGlosario();
+    if (v === 'registros') return vRegistros();
   }
   function refreshBoot() { return api('bootstrap').then(function (b) { S.boot = b; }); }
   function tb(sub, title, acts, meta) {
@@ -314,7 +315,8 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   function vNuevaVisita() {
     if (!esEval()) return go('visitas');
     var b = S.boot, f = S.form;
-    if (!f.inic) { S.form = f = { inic: 1, espacio: 'Aula', tipo: b.catalogos.tipos[0], trimestre: b.config.trimestre, fecha: hoy(), hora: ahoraHM() }; }
+    var tiposVisita = b.catalogos.tipos.filter(function (t) { return t !== 'Calibración'; });
+    if (!f.inic) { S.form = f = { inic: 1, espacio: 'Aula', tipo: tiposVisita[0], trimestre: b.config.trimestre, fecha: hoy(), hora: ahoraHM() }; }
     var docs = b.docentes.filter(function (d) { return d.activo; });
     var h = tb('Visitas', 'Nueva visita', '<button class="btn ghost" data-go="visitas">Cancelar</button>');
     h += '<p class="lead">Créala al entrar al aula. Los tres evaluadores la verán en su iPad y cada uno puntuará por separado.</p>';
@@ -325,7 +327,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
       '<label class="f"><span>Asignatura</span><input type="text" id="nvAsig" value="' + esc(f.asignatura || '') + '" maxlength="80"></label>' +
       '<label class="f"><span>Curso</span><input type="text" id="nvCurso" placeholder="7.º B" value="' + esc(f.curso || '') + '" maxlength="40"></label>' +
       '<label class="f"><span>Subnivel</span><select id="nvSub">' + ['', 'Elemental', 'Media', 'Superior', 'BGU'].map(function (s) { return '<option value="' + s + '"' + ((f.subnivel || '') === s ? ' selected' : '') + '>' + (s || 'Según el docente') + '</option>'; }).join('') + '</select></label>' +
-      '<label class="f"><span>Tipo de visita</span><select id="nvTipo">' + b.catalogos.tipos.map(function (t) { return '<option' + (f.tipo === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="f"><span>Tipo de visita</span><select id="nvTipo">' + tiposVisita.map(function (t) { return '<option' + (f.tipo === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></label>' +
       trimSelect('nvTrim', f.trimestre) +
       '<label class="f"><span>Fecha</span><input type="date" id="nvFecha" value="' + esc(f.fecha) + '"></label>' +
       '<label class="f"><span>Hora de inicio</span><input type="time" id="nvHora" value="' + esc(f.hora) + '"></label>' +
@@ -372,6 +374,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
         if (S.view !== vista || S.id !== id || !puedeRepintar()) return;
         if (enDetalle) { if (out.det && firma(out.det) !== antes) { pintarDetalle(); toast('Hubo cambios: la vista se actualizó.'); } }
         else if (vista === 'visitas' || vista === 'laboratorios' || vista === 'docentes') render();
+        else if (vista === 'registros') pintarRegistros();
         else if (vista === 'resultados') vResultados();
       });
     }).catch(function () { }).then(function () { S.refrescando = false; });
@@ -703,6 +706,97 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     $('#view').innerHTML = h;
   }
 
+  /* ---------------- registros de evaluación ---------------- */
+  var PERIODOS = [['', 'Todo'], ['hoy', 'Hoy'], ['7', '7 días'], ['30', '30 días'], ['t1', 'Trimestre 1'], ['t2', 'Trimestre 2'], ['t3', 'Trimestre 3']];
+  var ESTADOS = [['', 'Todos'], ['abierta', 'Puntuando'], ['revision', 'En revisión'], ['consolidada', 'Por verificar'], ['verificada', 'Verificada']];
+  function codigo(v) { return 'EA-' + String(v.id).slice(0, 6).toUpperCase(); }
+  function haceDias(n) { var d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function selectF(id, etiqueta, opciones, valor) {
+    return '<label class="f"><span>' + etiqueta + '</span><select id="' + id + '">' + opciones.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(valor) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  }
+  function vRegistros() {
+    var ev = esEval(), f = S.regF, b = S.boot;
+    var acts = (DEMO ? '' : '<button class="btn ghost" type="button" data-act="regCsv">Exportar a Excel (CSV)</button>') + (ev ? '<button class="btn" data-go="nuevaVisita">Nueva visita</button>' : '');
+    var h = tb('Comité de Experiencias de Aprendizaje', 'Registros de evaluación', acts, 'Todas las visitas con su nota. Toca una fila para abrir la ficha completa.');
+    h += '<div id="regKpis"></div>';
+    h += '<section class="card stack">' +
+      '<div class="toolbar">' +
+      '<label class="f q"><span>Buscar</span><input type="search" id="regq" value="' + esc(f.q) + '" placeholder="Docente, asignatura, curso o código" autocomplete="off"></label>' +
+      selectF('regSub', 'Subnivel', [['', 'Todos']].concat((b.catalogos.subniveles || []).map(function (s) { return [s, s]; })), f.sub) +
+      selectF('regNiv', 'Nivel', [['', 'Todos']].concat(REA.niveles.map(function (n, i) { return [String(i + 1), n]; })).concat([['sin', 'Sin nota aún']]), f.niv) +
+      selectF('regEst', 'Estado', ESTADOS, f.est) +
+      '</div>' +
+      '<div class="row"><div class="seg">' + PERIODOS.map(function (p) { return '<button type="button" data-act="regPer" data-v="' + p[0] + '" aria-pressed="' + (f.per === p[0]) + '">' + p[1] + '</button>'; }).join('') + '</div>' +
+      '<span class="muted small" id="regCount" style="margin-left:auto"></span><button class="btn ghost sm" type="button" data-act="regLimpiar">Quitar filtros</button></div>' +
+      '</section>';
+    h += '<div id="regList"></div>';
+    $('#view').innerHTML = h;
+    pintarRegistros();
+  }
+  function regFiltrados() {
+    var f = S.regF, q = f.q.trim().toLowerCase(), hoyS = hoy();
+    var desde = f.per === 'hoy' ? hoyS : f.per === '7' ? haceDias(6) : f.per === '30' ? haceDias(29) : '';
+    return S.boot.visitas.filter(function (v) {
+      if (f.sub && v.subnivel !== f.sub) return false;
+      if (f.est && v.estado !== f.est) return false;
+      if (f.niv === 'sin' && v.categoria) return false;
+      if (f.niv && f.niv !== 'sin' && Number(v.categoria) !== Number(f.niv)) return false;
+      if (desde && (v.fecha < desde || v.fecha > hoyS)) return false;
+      if (/^t[123]$/.test(f.per) && v.trimestre !== Number(f.per.slice(1))) return false;
+      if (q) { var d = docente(v.docente_id); if ([d.nombre, v.asignatura, v.curso, v.espacio, v.tipoVisita, codigo(v)].join(' ').toLowerCase().indexOf(q) < 0) return false; }
+      return true;
+    });
+  }
+  function autoTag(v) {
+    if (v.autoRespondida) return '<span class="chip verificada">Autorreflexión respondida</span>';
+    if (v.autoEnviada) return '<span class="chip">Autorreflexión enviada</span>';
+    return '';
+  }
+  function pintarRegistros() {
+    var l = regFiltrados(), b = S.boot;
+    var conNota = l.filter(function (v) { return v.puntaje != null; });
+    var prom = conNota.length ? conNota.reduce(function (a, v) { return a + Number(v.puntaje); }, 0) / conNota.length : null;
+    $('#regKpis').innerHTML = '<div class="tiles">' +
+      '<div class="tile"><b>' + l.length + '</b><span>Visitas en la lista</span></div>' +
+      '<div class="tile"><b>' + conNota.length + '</b><span>Con nota</span></div>' +
+      '<div class="tile"><b>' + (prom == null ? '—' : num1(prom)) + '</b><span>Nota promedio · sobre 100</span></div>' +
+      '<div class="tile"><b>' + l.filter(function (v) { return v.estado === 'verificada'; }).length + '</b><span>Verificadas por los tres</span></div></div>';
+    $('#regCount').textContent = l.length === 1 ? '1 visita' : l.length + ' visitas';
+    if (!l.length) {
+      $('#regList').innerHTML = '<div class="empty">' + (b.visitas.length ? '<b>Ninguna visita coincide</b>Ajusta o quita los filtros.' : '<b>Todavía no hay visitas registradas</b>' + (esEval() ? 'Registra la primera desde «Nueva visita».' : 'Aparecerán aquí cuando los evaluadores las registren.')) + '</div>';
+      return;
+    }
+    $('#regList').innerHTML = '<div class="tbl-wrap regs-wrap"><table class="tbl regs"><thead><tr><th>Código</th><th>Fecha</th><th>Docente y asignatura</th><th>Curso</th><th>Evaluación</th><th class="c">Nota</th><th>Nivel</th></tr></thead><tbody>' +
+      l.map(function (v) {
+        var d = docente(v.docente_id);
+        var avance = v.estado === 'abierta' ? v.enviadas + ' de ' + v.requeridas + ' puntuaciones' : v.estado === 'consolidada' ? v.verificados + ' de ' + v.requeridas + ' verificaciones' : v.estado === 'revision' ? 'Revisando diferencias' : 'Lista para el 1 a 1';
+        return '<tr class="click" data-go="visita" data-id="' + esc(v.id) + '" tabindex="0">' +
+          '<td data-l="Código"><span class="code">' + esc(codigo(v)) + '</span></td>' +
+          '<td data-l="Fecha" class="n">' + esc(fFecha(v.fecha)) + ' ' + esc(String(v.fecha).slice(0, 4)) + '<span class="sub2">' + esc(v.hora || '') + ' · Trimestre ' + v.trimestre + '</span></td>' +
+          '<td data-l="Docente" class="doc"><b>' + esc(d.nombre) + '</b><span class="sub2">' + esc([v.asignatura || d.asignatura, v.tipoVisita].filter(Boolean).join(' · ')) + '</span></td>' +
+          '<td data-l="Curso">' + (v.subnivel ? '<span class="chip">' + esc(v.subnivel) + '</span>' : '') + '<span class="sub2">' + esc([v.curso, v.espacio].filter(Boolean).join(' · ')) + '</span></td>' +
+          '<td data-l="Evaluación">' + chipEstado(v.estado) + '<span class="sub2">' + esc(avance) + '</span></td>' +
+          '<td data-l="Nota" class="c">' + (v.puntaje != null ? '<b class="nota">' + num1(v.puntaje) + '</b><span class="sub2">sobre 100</span>' : '<span class="muted">—</span>') + '</td>' +
+          '<td data-l="Nivel"><div class="tags">' + (v.categoria ? cat(v.categoria) : '<span class="muted small">Sin nota aún</span>') + autoTag(v) + '</div></td>' +
+          '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function csvRegistros(l) {
+    var celda = function (x) { x = x == null ? '' : String(x); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    var est = { abierta: 'Puntuando', revision: 'En revisión', consolidada: 'Por verificar', verificada: 'Verificada' };
+    var filas = [['Código', 'Fecha', 'Hora', 'Trimestre', 'Tipo de visita', 'Docente', 'Asignatura', 'Subnivel', 'Curso', 'Espacio', 'Estado', 'Nota (/100)', 'Nivel', 'Autorreflexión']].concat(l.map(function (v) {
+      var d = docente(v.docente_id);
+      return [codigo(v), v.fecha, v.hora, v.trimestre, v.tipoVisita, d.nombre, v.asignatura || d.asignatura, v.subnivel, v.curso, v.espacio, est[v.estado] || v.estado,
+        v.puntaje != null ? num1(v.puntaje) : '', v.categoria ? REA.niveles[v.categoria - 1] : '', v.autoRespondida ? 'Respondida' : v.autoEnviada ? 'Enviada' : ''];
+    }));
+    return '﻿' + filas.map(function (r) { return r.map(celda).join(';'); }).join('\r\n');
+  }
+  function descargar(nombre, texto) {
+    var url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  }
+
   /* ---------------- resultados ---------------- */
   function vResultados() {
     var t = S.resTrim || S.boot.config.trimestre, guardado = S.resCache[t];
@@ -717,7 +811,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     var r = S.res, b = S.boot;
     var con = r.filas.filter(function (f) { return f.resultado; });
     var total = con.length || 1;
-    var h = tb('Trimestre ' + r.trimestre + (r.lineaBase ? ' · línea base' : ''), 'Resultados', '', 'Solo cuentan visitas y experiencias verificadas por los tres evaluadores. Las visitas de calibración no cuentan.');
+    var h = tb('Trimestre ' + r.trimestre + (r.lineaBase ? ' · línea base' : ''), 'Resultados', '', 'Solo cuentan visitas y experiencias verificadas por los tres evaluadores.');
     h += '<div class="row" style="justify-content:space-between">' + '<div class="seg">' + [1, 2, 3].map(function (t) { return '<button data-act="resTrim" data-v="' + t + '" aria-pressed="' + (t === r.trimestre) + '">Trimestre ' + t + '</button>'; }).join('') + '</div></div>';
     h += '<div class="tiles"><div class="tile"><b>' + con.length + ' <small style="font-size:15px;color:var(--ink-2)">de ' + r.filas.length + '</small></b><span>Docentes con visita verificada</span></div>' +
       '<div class="tile"><b>' + r.visitasVerificadas + '</b><span>Visitas verificadas</span></div>' +
@@ -808,16 +902,6 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
       '<h3 style="margin:6px 0 0">Ejemplos calculados</h3><div class="scroll"><table class="tbl"><thead><tr><th>Caso</th><th>Medianas C1–C6</th><th>Parte B</th><th class="c">Sin tope</th><th>Tope</th><th>Resultado</th></tr></thead><tbody>' + REA.ejemplos.map(function (e) { return '<tr>' + e.map(function (x, i) { return '<td' + (i === 3 ? ' class="c n"' : '') + '>' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div></section>';
     $('#view').innerHTML = h;
   }
-  function vGuia() {
-    var h = tb('Los tres evaluadores', 'Guía del evaluador', '', 'Mismo protocolo, mismas reglas de evidencia, misma consolidación.');
-    h += '<section class="card stack" style="gap:10px"><span class="strip ink">Protocolo de la visita · 40 minutos</span><p class="small" style="margin:0">Los tres evaluadores entran siempre juntos. Nadie hace una visita individual.</p><div class="scroll"><table class="tbl"><thead><tr><th>Momento</th><th>Qué hacen los evaluadores</th></tr></thead><tbody>' + REA.protocolo.map(function (p) { return '<tr><td style="white-space:nowrap"><b>' + esc(p[0]) + '</b></td><td>' + esc(p[1]) + '</td></tr>'; }).join('') + '</tbody></table></div><p class="small" style="margin:0"><b>Clase no observable:</b> ' + esc(REA.noObservable) + '</p></section>';
-    h += '<div class="grid2"><section class="card stack" style="gap:8px"><span class="strip">Registro de evidencia</span><ul class="prose" style="margin:0">' + REA.registro.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul><h3 style="margin:6px 0 0">Muestreo cada 5 minutos (C2)</h3><p class="small" style="margin:0">' + esc(REA.muestreo) + '</p><h3 style="margin:6px 0 0">Preguntas fijas a estudiantes (C1 y C5)</h3><ol class="prose" style="margin:0"><li>' + esc(REA.preguntasFijas[0]) + '</li><li>' + esc(REA.preguntasFijas[1]) + ' En 3.º y 4.º EGB: «' + esc(REA.preguntaFijaElemental) + '»</li></ol></section>' +
-      '<section class="card stack" style="gap:8px"><span class="strip blue">Consolidación</span><ol class="prose" style="margin:0">' + REA.consolidacion.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ol><h3 style="margin:6px 0 0">Objeciones</h3><ul class="prose" style="margin:0">' + REA.objeciones.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></section></div>';
-    h += '<section class="card stack" style="gap:10px"><span class="strip pink">Rondas y tipos de visita</span><div class="scroll"><table class="tbl"><thead><tr><th>Ronda</th><th class="c">Trimestre</th><th>Tipo</th><th>Para qué</th></tr></thead><tbody>' + REA.rondas.map(function (r) { return '<tr><td><b>' + esc(r[0]) + '</b></td><td class="c n">' + esc(r[1]) + '</td><td>' + esc(r[2]) + '</td><td>' + esc(r[3]) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
-    h += '<section class="card stack" style="gap:10px"><span class="strip green">Cómo se ven los niveles 3 y 4 según el subnivel</span><p class="small muted" style="margin:0">Ejemplos para reconocer evidencia, no recetas. Aquí sí se nombran herramientas y laboratorios; en los descriptores, no.</p><div class="scroll"><table class="tbl" style="min-width:820px"><thead><tr><th>Criterio</th>' + REA.subniveles.map(function (s) { return '<th>' + esc(s) + '</th>'; }).join('') + '</tr></thead><tbody>' + CV.map(function (id) { return '<tr><td><b>' + id + '</b> ' + esc(crit(id).nombre) + '</td>' + REA.ejemplosSubnivel[id].map(function (x) { return '<td class="small">' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div></section>';
-    h += '<section class="stack"><div class="grid3">' + REA.laboratorios.map(function (l, i) { return '<div class="card ' + ['blue', 'teal', 'pink'][i] + '"><span class="k">' + esc(l.tipo) + '</span><h2 style="margin:4px 0 6px">' + esc(l.nombre) + '</h2><p class="small" style="margin:0">' + esc(l.texto) + '</p></div>'; }).join('') + '</div><p class="small muted">Referencia para reconocer los niveles 3 y 4 de B2. No es una receta obligatoria.</p></section>';
-    $('#view').innerHTML = h;
-  }
   function vConversacion() {
     var h = tb('Después de cada visita', 'Conversación 1 a 1', '', 'Primero se escucha y después se devuelve. Las preguntas con página son de la Biblioteca de coaching de Apple.');
     h += '<section class="card stack" style="gap:10px"><span class="strip pink">Autorreflexión · se responde antes de la conversación</span><div class="scroll"><table class="tbl"><thead><tr><th class="c">#</th><th>Pregunta</th><th>Origen</th></tr></thead><tbody>' + REA.autorreflexion.map(function (q, i) { return '<tr><td class="c n">' + (i + 1) + '</td><td><b>' + esc(q[0]) + '</b></td><td class="small">' + esc(q[1]) + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
@@ -827,12 +911,6 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     h += '<p class="small muted">El acuerdo de reto (Hoja de trabajo de objetivos, pág. 11) se registra en cada visita, en la sección Visitas.</p>';
     $('#view').innerHTML = h;
   }
-  function vGlosario() {
-    var h = tb('Nombres oficiales', 'Glosario', '', 'Todos los documentos del plan usan estos nombres.');
-    h += '<div class="scroll"><table class="tbl"><thead><tr><th>Término oficial</th><th>Qué es</th><th>No usar</th></tr></thead><tbody>' + REA.glosario.map(function (g) { return '<tr><td><b>' + esc(g[0]) + '</b></td><td>' + esc(g[1]) + '</td><td class="small muted">' + esc(g[2]) + '</td></tr>'; }).join('') + '</tbody></table></div>';
-    $('#view').innerHTML = h;
-  }
-
   /* ---------------- acciones ---------------- */
   function trabajar(promesa, ok) {
     S.busy = true;
@@ -863,6 +941,9 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (act === 'neLab') { S.form.laboratorio = v; $$('[data-act="neLab"]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.v === v); }); return; }
     if (act === 'neCuenta') { S.form.cuenta = v === '1'; $$('[data-act="neCuenta"]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.v === v); }); return; }
     if (act === 'resTrim') { S.resTrim = Number(v); vResultados(); return; }
+    if (act === 'regPer') { S.regF.per = v; $$('[data-act="regPer"]').forEach(function (x) { x.setAttribute('aria-pressed', x.dataset.v === v); }); pintarRegistros(); return; }
+    if (act === 'regLimpiar') { S.regF = { q: '', sub: '', niv: '', est: '', per: '' }; vRegistros(); return; }
+    if (act === 'regCsv') { descargar('registros-rubrica-ea-' + hoy() + '.csv', csvRegistros(regFiltrados())); toast('Archivo descargado: ábrelo con Excel o Numbers.'); return; }
     if (act === 'pedir') { S.confirm = v; if (v === 'enviar') actualizarDock(); else pintarDetalle(); return; }
     if (act === 'noConfirm') { var era = S.confirm; S.confirm = ''; if (era === 'enviar') actualizarDock(); else pintarDetalle(); return; }
     if (act === 'recargar') { recargarDetalle('Vista actualizada.'); return; }
@@ -922,12 +1003,19 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (act === 'docNuevo') { S.editDoc = null; S.err = ''; vDocentes(); return; }
   });
 
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter') return;
+    var fila = ev.target.closest && ev.target.closest('tr[data-go]');
+    if (fila) { ev.preventDefault(); fila.click(); }
+  });
+
   document.addEventListener('input', function (ev) {
     var t = ev.target;
     if (t.dataset.in === 'evid') { var k = Number(t.dataset.k); S.draft.evidencias[k] = t.value; guardarDraft(); var w = $('[data-warn="' + k + '"]'); if (w) w.hidden = !faltaEvid(k); actualizarDockLigero(); return; }
     if (t.dataset.in === 'resp') { S.draft.respuestas[Number(t.dataset.i)] = t.value; guardarDraft(); return; }
     if (t.dataset.in === 'revNota') { S.rev.notas[Number(t.dataset.k)] = t.value; return; }
     if (t.id === 'fq') { S.filtro.q = t.value; var pos = t.selectionStart; vVisitas(); var n = $('#fq'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { } return; }
+    if (t.id === 'regq') { S.regF.q = t.value; pintarRegistros(); return; }
     if (t.id === 'rq') { S.resQ = t.value; var p2 = t.selectionStart; pintarResultados(); var r = $('#rq'); r.focus(); try { r.setSelectionRange(p2, p2); } catch (e) { } return; }
   });
   var dockT;
@@ -938,6 +1026,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (t.id === 'ftrim') { S.filtro.trim = Number(t.value); vVisitas(); return; }
     if (t.id === 'ltrim') { S.labFiltro.trim = Number(t.value); vLaboratorios(); return; }
     if (t.id === 'rord') { S.resOrden = t.value; pintarResultados(); return; }
+    if (t.id === 'regSub' || t.id === 'regNiv' || t.id === 'regEst') { S.regF[{ regSub: 'sub', regNiv: 'niv', regEst: 'est' }[t.id]] = t.value; pintarRegistros(); return; }
     if (t.id === 'nvDoc') {
       S.form.docente = t.value; var d = docente(t.value);
       if (t.value) { $('#nvAsig').value = d.asignatura || ''; $('#nvSub').value = d.subnivel || ''; }
@@ -946,7 +1035,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (t.id === 'demoUser') {
       window.REA_DEMO.actual = Number(t.value);
       S.cacheDet = {}; S.resCache = {};   // lo guardado era desde la vista de otra persona
-      refreshBoot().then(function () { renderWho(); var vista = S.view, id = S.id; go(S.boot.usuario.role === 'evaluador' ? vista : (vista === 'nuevaVisita' || vista === 'nuevaExperiencia' ? 'resultados' : vista), id); });
+      refreshBoot().then(function () { renderWho(); var vista = S.view, id = S.id; go(S.boot.usuario.role === 'evaluador' ? vista : (vista === 'nuevaVisita' || vista === 'nuevaExperiencia' ? 'registros' : vista), id); });
     }
   });
 
@@ -980,7 +1069,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   });
 
   /* ---------------- arranque ---------------- */
-  function abrir() { shell(); renderWho(); go(esEval() ? 'visitas' : 'resultados'); vigilar(); }
+  function abrir() { shell(); renderWho(); go(esEval() ? 'visitas' : 'registros'); vigilar(); }
   function iniciar() {
     if (DEMO) {
       $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo la Rúbrica EA…</div>';
@@ -1005,7 +1094,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
       abrir();
     }).catch(function (e) {
       var otra = e.codigo === 'SINACCESO' || e.codigo === 'DOMINIO';
-      $('#app').innerHTML = '<header class="top"><div class="wrap gut"><img class="logo" src="' + REA_LOGO + '" alt="Eight Academy · Unidad Educativa" style="height:34px"></div></header><div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>' +
+      $('#app').innerHTML = '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><header class="topbar"><div class="wrap gut"><span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span><div class="t"><b>Rúbrica EA</b><span>Experiencias de Aprendizaje · Eight Academy</span></div></div></header>' +
         '<div class="wrap gut" style="padding-block:28px 60px;max-width:640px"><div class="tb"><div class="t"><span class="sub">Rúbrica EA</span><h1>' + (otra ? 'No tienes acceso a este portal' : 'No se pudo abrir el portal') + '</h1></div></div>' +
         '<p class="err" style="margin-top:16px">' + esc(e.message) + '</p><div class="row" style="margin-top:12px">' +
         (otra ? '<button class="btn" type="button" data-act="salir">Usar otra cuenta</button>' : '<button class="btn" type="button" onclick="location.reload()">Intentar de nuevo</button>') + '</div></div>';
