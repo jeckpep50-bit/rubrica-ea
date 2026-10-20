@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Autorreflexión · Eight Academy</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#102c55">
+<link rel="icon" type="image/png" href="assets/logo-simbolo.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
+<link rel="preload" href="assets/fuentes/pjs-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/estilos.css?v=f13f78198b">
+<style>
+.ar-top { background: var(--ink); }
+.ar-top div { max-width: 760px; margin: 0 auto; padding-block: 14px; }
+.ar-top img { height: 34px; width: auto; display: block; }
+.ar { max-width: 760px; margin: 0 auto; padding-block: 22px 60px; display: flex; flex-direction: column; gap: 16px; }
+.ar .tb { background: var(--yellow); border-radius: 18px; padding: 14px 20px 16px; }
+.ar .tb span { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: rgba(16,44,85,.72); }
+.ar .tb h1 { margin: 4px 0 0; font-size: 26px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
+.ar .tb p { margin: 6px 0 0; font-weight: 600; color: var(--ink-2); font-size: 14px; }
+.ar p { margin: 0; }
+.ar form { display: flex; flex-direction: column; gap: 18px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line); padding: 18px; }
+.ar label { display: flex; flex-direction: column; gap: 8px; font-weight: 800; }
+.ar textarea { width: 100%; min-height: 110px; font: 500 16px/1.45 var(--font); color: var(--ink); border: 1.5px solid var(--line-2); border-radius: 12px; padding: 12px; resize: vertical; }
+.ar textarea:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-2); }
+.ar .enviar { font: 800 15px var(--font); background: var(--ink); color: #fff; border: 0; border-radius: 12px; padding: 13px 20px; min-height: 46px; }
+.ar .enviar[disabled] { opacity: .5; }
+.ar .ok { background: var(--teal-2); border-radius: 14px; padding: 18px; }
+.ar .err { background: var(--coral-2); border-radius: 12px; padding: 12px; font-weight: 600; }
+.ar .otra { font: 700 14px var(--font); background: transparent; color: var(--ink); border: 1.5px solid var(--line-2); border-radius: 12px; padding: 10px 16px; min-height: 44px; align-self: flex-start; }
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="config.js?v=f13f78198b"></script>
+<script src="assets/acceso.js?v=f13f78198b" defer></script>
+</head>
+<body>
+<header class="ar-top"><div class="gut"><img src="assets/logo.png" alt="Eight Academy · Unidad Educativa"></div></header>
+<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+<main class="ar gut" id="m" aria-live="polite"></main>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var token = (new URLSearchParams(location.search).get('a') || '').slice(0, 80);
+  var m = document.getElementById('m');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  function fechaLarga(iso) { var x = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return x ? Number(x[3]) + ' de ' + MESES[Number(x[2]) - 1] + ' de ' + x[1] : String(iso || ''); }
+  function cab(t, sub) { return '<div class="tb"><span>Autorreflexión · Eight Academy</span><h1>' + t + '</h1>' + (sub ? '<p>' + sub + '</p>' : '') + '</div>'; }
+  function otraCuenta() { return '<button class="otra" type="button" id="otra">Usar otra cuenta</button>'; }
+  function enlazarOtra() { var b = document.getElementById('otra'); if (b) b.addEventListener('click', function () { REA_WEB.salir(); }); }
+  if (!token) { m.innerHTML = cab('Este enlace no es válido') + '<p>Abre el enlace completo que llegó a tu correo.</p>'; return; }
+  REA_WEB.iniciar({ titulo: 'Autorreflexión de tu clase', texto: 'Entra con tu cuenta institucional para responder. El enlace es personal.', alEntrar: cargar });
+  function cargar() {
+    m.innerHTML = '<div class="loading"><span class="spin"></span>Abriendo tu autorreflexión…</div>';
+    REA_WEB.llamar('autorreflexionInfo', { token: token }).then(pintar).catch(function (e) {
+      m.innerHTML = cab('No se pudo abrir') + '<p class="err">' + esc(e.message) + '</p>' + (e.codigo === 'DOMINIO' ? otraCuenta() : '');
+      enlazarOtra();
+    });
+  }
+  function pintar(D) {
+    var u = REA_WEB.usuario() || {};
+    if (D.estado === 'noexiste') { m.innerHTML = cab('Este enlace no es válido') + '<p>Pide un enlace nuevo al Departamento de Experiencias de Aprendizaje.</p>'; return; }
+    if (D.estado === 'denegado') {
+      m.innerHTML = cab('Este enlace es personal') + '<p>Entraste como <b>' + esc(u.email) + '</b>. Ábrelo con la cuenta institucional del docente observado.</p>' + otraCuenta();
+      enlazarOtra(); return;
+    }
+    var c = cab('Tu clase del ' + esc(fechaLarga(D.fecha)), esc([D.asignatura, D.curso].filter(Boolean).join(' · ')));
+    if (D.estado === 'respondida') { m.innerHTML = c + '<div class="ok"><b>Gracias, ' + esc(D.nombre) + '.</b> Recibimos tu autorreflexión. La conversaremos en nuestro encuentro 1 a 1.</div>'; return; }
+    m.innerHTML = c + '<p>Hola, ' + esc(D.nombre) + '. Responde estas cuatro preguntas antes de nuestra conversación. No hay respuestas correctas: nos interesa tu lectura de la clase.</p>' +
+      '<form id="f" novalidate>' + D.preguntas.map(function (q, i) {
+        return '<label for="q' + i + '">' + (i + 1) + '. ' + esc(q) + '<textarea id="q' + i + '" maxlength="2000" required></textarea></label>';
+      }).join('') + '<div id="e"></div><div><button class="enviar" type="submit" id="b">Enviar autorreflexión</button></div></form>';
+    // Borrador local: si la sesión expira o se cierra la pestaña, lo escrito no se pierde.
+    var clave = 'rea_auto_' + token;
+    try { var g = JSON.parse(localStorage.getItem(clave) || '[]'); g.forEach(function (t, i) { var el = document.getElementById('q' + i); if (el && t) el.value = t; }); } catch (err) { }
+    m.addEventListener('input', function () { try { localStorage.setItem(clave, JSON.stringify([0, 1, 2, 3].map(function (i) { return document.getElementById('q' + i).value; }))); } catch (err) { } });
+    document.getElementById('f').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var r = [0, 1, 2, 3].map(function (i) { return document.getElementById('q' + i).value; });
+      if (r.some(function (x) { return x.trim().length < 2; })) { document.getElementById('e').innerHTML = '<div class="err">Responde las cuatro preguntas.</div>'; return; }
+      var b = document.getElementById('b'); b.disabled = true; b.textContent = 'Enviando…';
+      REA_WEB.llamar('autorreflexionEnviar', { token: token, respuestas: r }).then(function () {
+        try { localStorage.removeItem(clave); } catch (err) { }
+        D.estado = 'respondida'; pintar(D); window.scrollTo(0, 0);
+      }).catch(function (e) {
+        b.disabled = false; b.textContent = 'Enviar autorreflexión';
+        document.getElementById('e').innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+      });
+    });
+  }
+});
+</script>
+</body>
+</html>
