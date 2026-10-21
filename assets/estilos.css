@@ -304,7 +304,7 @@ details.card[open] > summary::after { content: "–"; }
 /* ---------- inicio de sesión (sitio publicado) ---------- */
 .acceso { position: fixed; inset: 0; z-index: 60; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; }
 .acceso.sobre { background: rgba(13,24,41,.55); align-items: center; justify-content: center; padding: 16px; }
-.hero { background: var(--sky); position: relative; overflow: hidden; flex: 1; display: flex; align-items: center; }
+.hero { background: var(--sky); position: relative; overflow: hidden; flex: 1 0 auto; display: flex; align-items: center; }
 .hero::before, .hero::after { content: ""; position: absolute; width: 180px; height: 180px; border-radius: 50%; background: var(--leaf); opacity: .9; }
 .hero::before { left: -90px; top: -90px; } .hero::after { right: -90px; bottom: -90px; }
 .hero .wrap { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 40px; align-items: center; padding-block: 44px; position: relative; z-index: 1; }

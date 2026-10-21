@@ -91,7 +91,7 @@ if (typeof module !== 'undefined') module.exports = RubricaCore;
 
 var REA_LOGO = "assets/logo.png";
 var REA_LOGO_SYM = "assets/logo-simbolo.png";
-/* Rúbrica EA · portal (cliente) */
+/* EA Conecta · portal (cliente) */
 (function () {
   'use strict';
   // Dos modos: el sitio publicado (habla con el servidor de Apps Script) y la demostración con datos de ejemplo.
@@ -206,7 +206,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
       '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>' +
       '<header class="topbar"><div class="wrap gut">' +
       '<span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span>' +
-      '<div class="t"><b>Rúbrica EA</b><span>Experiencias de Aprendizaje · Eight Academy' + (anio ? ' · ' + esc(anio) : '') + '</span></div>' +
+      '<div class="t"><b>EA Conecta</b><span>Experiencias de Aprendizaje · Eight Academy' + (anio ? ' · ' + esc(anio) : '') + '</span></div>' +
       '<div class="who" id="who"></div></div></header>' +
       (!DEMO ? '' : '<div class="demo-band"><div class="wrap gut"><b>Demostración con datos de ejemplo.</b><span>Nada se guarda: al recargar vuelve al inicio. Cambia de evaluador arriba para ver cómo trabajan los tres.</span></div></div>') +
       '<div class="navbar"><div class="wrap gut"><nav class="nav" id="nav" aria-label="Secciones"></nav></div></div>' +
@@ -943,7 +943,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
     if (act === 'resTrim') { S.resTrim = Number(v); vResultados(); return; }
     if (act === 'regPer') { S.regF.per = v; $$('[data-act="regPer"]').forEach(function (x) { x.setAttribute('aria-pressed', x.dataset.v === v); }); pintarRegistros(); return; }
     if (act === 'regLimpiar') { S.regF = { q: '', sub: '', niv: '', est: '', per: '' }; vRegistros(); return; }
-    if (act === 'regCsv') { descargar('registros-rubrica-ea-' + hoy() + '.csv', csvRegistros(regFiltrados())); toast('Archivo descargado: ábrelo con Excel o Numbers.'); return; }
+    if (act === 'regCsv') { descargar('registros-ea-conecta-' + hoy() + '.csv', csvRegistros(regFiltrados())); toast('Archivo descargado: ábrelo con Excel o Numbers.'); return; }
     if (act === 'pedir') { S.confirm = v; if (v === 'enviar') actualizarDock(); else pintarDetalle(); return; }
     if (act === 'noConfirm') { var era = S.confirm; S.confirm = ''; if (era === 'enviar') actualizarDock(); else pintarDetalle(); return; }
     if (act === 'recargar') { recargarDetalle('Vista actualizada.'); return; }
@@ -1072,7 +1072,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   function abrir() { shell(); renderWho(); go(esEval() ? 'visitas' : 'registros'); vigilar(); }
   function iniciar() {
     if (DEMO) {
-      $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo la Rúbrica EA…</div>';
+      $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo EA Conecta…</div>';
       refreshBoot().then(abrir).catch(function (e) {
         $('#app').innerHTML = '<div class="wrap gut" style="padding-block:60px"><div class="err">' + esc(e.message) + '</div></div>';
       });
@@ -1082,7 +1082,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
   }
   // Sitio publicado: un solo viaje trae los datos y, si el navegador no la tiene, la rúbrica.
   function cargarInicio() {
-    $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo la Rúbrica EA…</div>';
+    $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo EA Conecta…</div>';
     var guardado = null;
     try { guardado = JSON.parse(sessionStorage.getItem('rea_contenido') || 'null'); } catch (e) { guardado = null; }
     api('inicio', { cv: guardado ? guardado.cv : '' }).then(function (o) {
@@ -1094,8 +1094,8 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
       abrir();
     }).catch(function (e) {
       var otra = e.codigo === 'SINACCESO' || e.codigo === 'DOMINIO';
-      $('#app').innerHTML = '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><header class="topbar"><div class="wrap gut"><span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span><div class="t"><b>Rúbrica EA</b><span>Experiencias de Aprendizaje · Eight Academy</span></div></div></header>' +
-        '<div class="wrap gut" style="padding-block:28px 60px;max-width:640px"><div class="tb"><div class="t"><span class="sub">Rúbrica EA</span><h1>' + (otra ? 'No tienes acceso a este portal' : 'No se pudo abrir el portal') + '</h1></div></div>' +
+      $('#app').innerHTML = '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><header class="topbar"><div class="wrap gut"><span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span><div class="t"><b>EA Conecta</b><span>Experiencias de Aprendizaje · Eight Academy</span></div></div></header>' +
+        '<div class="wrap gut" style="padding-block:28px 60px;max-width:640px"><div class="tb"><div class="t"><span class="sub">EA Conecta</span><h1>' + (otra ? 'No tienes acceso a este portal' : 'No se pudo abrir el portal') + '</h1></div></div>' +
         '<p class="err" style="margin-top:16px">' + esc(e.message) + '</p><div class="row" style="margin-top:12px">' +
         (otra ? '<button class="btn" type="button" data-act="salir">Usar otra cuenta</button>' : '<button class="btn" type="button" onclick="location.reload()">Intentar de nuevo</button>') + '</div></div>';
     });

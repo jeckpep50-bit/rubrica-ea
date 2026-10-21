@@ -1,4 +1,4 @@
-/* Rúbrica EA · inicio de sesión con Google y conexión con el servidor (sitio en GitHub Pages) */
+/* EA Conecta · inicio de sesión con Google y conexión con el servidor (sitio en GitHub Pages) */
 window.REA_WEB = (function () {
   'use strict';
   var CFG = window.REA_CONFIG || {};
@@ -51,7 +51,7 @@ window.REA_WEB = (function () {
   function mostrarCapa(tipo, mensaje) {
     if (!capa) { capa = document.createElement('div'); capa.className = 'acceso'; capa.setAttribute('role', 'dialog'); capa.setAttribute('aria-modal', 'true'); document.body.appendChild(capa); }
     capa.className = 'acceso' + (tipo === 'expirada' ? ' sobre' : '');
-    var titulo = tipo === 'expirada' ? 'Tu sesión de Google expiró' : (opciones.titulo || 'Rúbrica EA');
+    var titulo = tipo === 'expirada' ? 'Tu sesión de Google expiró' : (opciones.titulo || 'EA Conecta');
     var texto = tipo === 'expirada'
       ? 'Vuelve a entrar para continuar. Lo que estabas escribiendo sigue guardado en este dispositivo.'
       : (opciones.texto || 'Entra con tu cuenta institucional de Eight Academy.');
@@ -59,13 +59,13 @@ window.REA_WEB = (function () {
     var aviso = '<p id="accesoMsg" class="acceso-msg">' + (mensaje ? '<span class="err">' + esc(mensaje) + '</span>' : 'Solo cuentas @' + esc(CFG.DOMINIO || 'eightacademy.edu.ec') + '.') + '</p>';
     if (tipo === 'expirada') {
       // Diálogo sobre el portal: lo que estaba en pantalla sigue ahí.
-      capa.innerHTML = '<div class="dialogo"><span class="eyebrow">Rúbrica EA</span><h2>' + esc(titulo) + '</h2><p>' + esc(texto) + '</p><div id="gsiBoton" class="acceso-boton"></div>' + aviso + '</div>';
+      capa.innerHTML = '<div class="dialogo"><span class="eyebrow">EA Conecta</span><h2>' + esc(titulo) + '</h2><p>' + esc(texto) + '</p><div id="gsiBoton" class="acceso-boton"></div>' + aviso + '</div>';
     } else {
-      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige una visita o registra una nueva', 'Puntúa, consolida y verifica con tu equipo'];
+      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige tu sede: Primaria o Secundaria', 'Elige qué vas a hacer: subir cuadernillos de clase, tareas o refuerzos; pedir plantillas o recursos digitales para podcast, aula inmersiva o metaverso; o subir los trabajos de tus estudiantes'];
       capa.innerHTML = franja + '<section class="hero"><div class="wrap gut">' +
         '<div class="hero-marca"><picture><source srcset="assets/logo.png" media="(prefers-color-scheme: dark)"><img src="assets/logo-oscuro.png" alt="Eight Academy · Unidad Educativa" width="560" height="80"></picture>' + franja +
         '<p>' + esc(opciones.sub || 'Departamento de Experiencias de Aprendizaje') + '</p></div>' +
-        '<div class="hero-texto"><span class="eyebrow">' + esc(opciones.eyebrow || 'Evaluación de clases') + '</span><h1>' + esc(titulo) + '</h1><p class="lead">' + esc(texto) + '</p>' +
+        '<div class="hero-texto"><span class="eyebrow">' + esc(opciones.eyebrow || 'Portal de Recursos Institucionales') + '</span><h1>' + esc(titulo) + '</h1><p class="lead">' + esc(texto) + '</p>' +
         '<ol class="pasos">' + pasos.map(function (p, i) { return '<li><span class="num n' + (i + 1) + '">' + (i + 1) + '</span>' + esc(p) + '</li>'; }).join('') + '</ol>' +
         '<div id="gsiBoton" class="acceso-boton"></div>' + aviso + '</div></div></section>' +
         '<footer class="footer"><div class="wrap gut">Eight Academy · Unidad Educativa — We are the change. · <a href="privacidad.html">Aviso de privacidad</a></div></footer>' + franja;
@@ -118,7 +118,7 @@ window.REA_WEB = (function () {
     iniciar: function (op) {
       opciones = op || {};
       if (!this.configurado()) {
-        document.body.insertAdjacentHTML('beforeend', '<div class="acceso sobre"><div class="dialogo"><span class="eyebrow">Rúbrica EA</span><h2>El portal aún no está configurado</h2><p>Falta completar API_URL y CLIENT_ID en config.js.</p></div></div>');
+        document.body.insertAdjacentHTML('beforeend', '<div class="acceso sobre"><div class="dialogo"><span class="eyebrow">EA Conecta</span><h2>El portal aún no está configurado</h2><p>Falta completar API_URL y CLIENT_ID en config.js.</p></div></div>');
         return;
       }
       try { fetch(CFG.API_URL, { method: 'GET', redirect: 'follow' }).then(null, function () { }); } catch (e) { }
