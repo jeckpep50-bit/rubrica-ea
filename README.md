@@ -1,6 +1,6 @@
-# Rúbrica EA · Eight Academy
+# EA Conecta · Eight Academy
 
-Sitio del portal de evaluación del Departamento de Experiencias de Aprendizaje.
+Portal de Recursos Institucionales del Departamento de Experiencias de Aprendizaje.
 
 - `index.html`: portal para evaluadores y directivos (inicio de sesión con la cuenta institucional).
 - `autorreflexion.html`: página personal del docente para responder su autorreflexión.
