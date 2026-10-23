@@ -1224,6 +1224,8 @@ window.HU_MODULO = function (EA) {
       '<span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span>' +
       '<div class="t"><b>EA Conecta</b><span>Experiencias de Aprendizaje · Eight Academy' + (anio ? ' · ' + esc(anio) : '') + '</span></div>' +
       '<div class="who" id="who"></div></div></header>' +
+      // Servidor todavía en la versión anterior (no responde Huella de clases): se avisa a quien administra.
+      (DEMO || S.hu || S.huError || !S.boot ? '' : '<div class="demo-band" role="status"><div class="wrap gut"><b>Huella de clases todavía no está activa.</b><span>El servidor de Apps Script sigue en la versión anterior. En Apps Script: Implementar → Gestionar implementaciones → lápiz → Versión: Nueva versión → Implementar.</span></div></div>') +
       (!DEMO ? '' : '<div class="demo-band"><div class="wrap gut"><b>Demostración con datos de ejemplo.</b><span>Nada se guarda: al recargar vuelve al inicio. Cambia de persona arriba para ver el portal como docente, coordinación, Dirección o evaluador.</span></div></div>') +
       '<div class="navbar"><div class="wrap gut"><nav class="nav" id="nav" aria-label="Secciones"></nav></div></div>' +
       '<main><div class="wrap gut" id="view"></div></main>' +
