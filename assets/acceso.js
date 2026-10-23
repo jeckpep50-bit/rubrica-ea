@@ -97,20 +97,25 @@ window.REA_WEB = (function () {
       .then(null, function (e) { if (e && e.codigo) throw e; throw errorDeRed(); });
   }
   // op.tiempo: espera máxima en ms (las partes de una subida pueden tardar más que una consulta).
+  // Un corte de red se reintenta una vez sola (1,5 s después). Es seguro también para escrituras:
+  // el servidor reconoce una escritura repetida y devuelve la respuesta que ya había guardado.
   function llamar(accion, datos, op) {
-    function intento(yaReintentado) {
+    function intento(yaReintentado, redReintentada) {
       var listo = vigente() ? Promise.resolve() : pedirSesion(huboSesion ? 'expirada' : 'inicio');
       return listo.then(function () {
         return enviar({ token: sesion.t, accion: accion, datos: datos || {} }, op && op.tiempo);
       }).then(function (j) {
         if (j && j.ok) return j.data;
-        if (j && j.codigo === 'AUTH' && !yaReintentado) { borrar(); return intento(true); }
+        if (j && j.codigo === 'AUTH' && !yaReintentado) { borrar(); return intento(true, redReintentada); }
         var e = new Error((j && j.error) || 'El servidor no respondió como se esperaba.');
         e.codigo = (j && j.codigo) || 'ERROR';
         throw e;
+      }, function (e) {
+        if (e && e.codigo === 'RED' && !redReintentada) return new Promise(function (r) { setTimeout(r, 1500); }).then(function () { return intento(yaReintentado, true); });
+        throw e;
       });
     }
-    return intento(false);
+    return intento(false, false);
   }
 
   return {

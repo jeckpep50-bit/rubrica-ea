@@ -96,7 +96,7 @@ var REA_LOGO_SYM = "assets/logo-simbolo.png";
    Se usan igual en el servidor (Apps Script), en la demostración y, para los formatos, en el navegador.
    db: { config(), catalogo(), usuarios(), guardarUsuario(o, nuevo),
          huellas() [filas ligeras], huellaCompleta(h), huellasCompletas(), insertarHuella(o), actualizarHuella(o),
-         archivoPropio(id, email) -> { n, s } | null, aPapelera(id), ahora(), hoy(), uuid() }
+         archivoPropio(id, email) -> { n, s } | null, marcarArchivo(id, huellaId), aPapelera(id), ahora(), hoy(), uuid() }
    ctx: { email, nombre, global, coord: ['Primaria' | 'Secundaria'] }
    ============================================================ */
 var HU_SEDES = ['Primaria', 'Secundaria'];
@@ -156,7 +156,7 @@ function huParsearCatalogo(filas) {
 }
 
 function crearServicioHuella(db) {
-  function err(m) { throw new Error(m); }
+  function err(m) { var e = new Error(m); e.codigo = 'VALIDACION'; throw e; }
   function txt(v, max) { v = v == null ? '' : String(v).replace(/\r\n?/g, '\n').trim(); return v.length > max ? v.slice(0, max) : v; }
   function low(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
   function partes(s) { return String(s == null ? '' : s).split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
@@ -239,7 +239,7 @@ function crearServicioHuella(db) {
     return {
       usuario: { email: ctx.email, nombre: ctx.nombre || (u && String(u.nombre)) || '', sede: u && HU_SEDES.indexOf(String(u.sede)) >= 0 ? String(u.sede) : '' },
       permisos: { global: !!ctx.global, coord: (ctx.coord || []).slice(), registros: puedeRegistros(ctx) },
-      anio: cf.anio, hoy: db.hoy(), catalogo: db.catalogo(), estados: HU_ESTADOS,
+      anio: cf.anio, catalogo: db.catalogo(), estados: HU_ESTADOS,
       limites: { maxMb: cf.evidMaxMb, maxArchivos: cf.evidMaxArchivos, maxEnlaces: HU_MAX_ENLACES },
       mias: mias.map(ligera), pares: otras.map(ligera)
     };
@@ -304,7 +304,10 @@ function crearServicioHuella(db) {
     obj.contenidos = contenidos; obj.actividades = actividades; obj.recurso_otro = recursoOtro; obj.metodologia = metodologia;
     obj.evidencias = JSON.stringify(ev);
     if (fullPrevia) { obj.actualizado = db.ahora(); db.actualizarHuella(obj); } else db.insertarHuella(obj);
-    // Al editar, los archivos que se quitaron van a la papelera de Drive.
+    // Los archivos nuevos dejan de ser borradores; los que se quitaron al editar van a la papelera de Drive.
+    ev.forEach(function (e) {
+      if (e.t === 'a' && !previasEv.some(function (x) { return x.t === 'a' && x.id === e.id; })) db.marcarArchivo(e.id, obj.id);
+    });
     previasEv.forEach(function (e) {
       if (e.t === 'a' && !ev.some(function (x) { return x.t === 'a' && x.id === e.id; })) db.aPapelera(e.id);
     });
@@ -407,8 +410,7 @@ window.HU_MODULO = function (EA) {
   function cat() { return S.hu.catalogo; }
   function primerNombre() { var n = String(U().nombre || '').trim(); return n ? n.split(/\s+/)[0] : String(U().email).split('@')[0]; }
   function fTam(b) { b = Number(b) || 0; if (b >= 1048576) return String(Math.round(b / 1048576 * 10) / 10).replace('.', ',') + ' MB'; return Math.max(1, Math.round(b / 1024)) + ' KB'; }
-  function iso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
-  function lunes() { var d = new Date(); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return iso(d); }
+  function lunes() { var d = new Date(); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return EA.iso(d); }
   function chipEstado(e) { return '<span class="chip hu-' + esc(e) + '"><span class="dot"></span>' + esc(ESTADO_CORTO[e] || e) + '</span>'; }
   function solapan(a, b) { return (a.paralelos || []).some(function (p) { return (b.paralelos || []).indexOf(p) >= 0; }); }
   function sedeDe(curso) { var c = cat(); for (var i = 0; i < HU_SEDES.length; i++) if ((c.cursos[HU_SEDES[i]] || []).indexOf(curso) >= 0) return HU_SEDES[i]; return ''; }
@@ -571,12 +573,24 @@ window.HU_MODULO = function (EA) {
     return out;
   }
   function subiendo(f) { return H.subidas.filter(function (s) { return s.form === (f || H.form) && s.estado === 'subiendo'; }).length; }
+  // Mientras sube un archivo, la pantalla del iPad no se apaga (si se apaga, iPadOS corta la subida).
+  var pantalla = null;
+  function mantenerPantalla() {
+    var activas = H.subidas.some(function (s) { return s.estado === 'subiendo'; });
+    try {
+      if (activas && !pantalla && navigator.wakeLock && document.visibilityState === 'visible') {
+        pantalla = 'pidiendo';
+        navigator.wakeLock.request('screen').then(function (w) { pantalla = w; w.addEventListener('release', function () { pantalla = null; }); }).catch(function () { pantalla = null; });
+      } else if (!activas && pantalla && pantalla.release) { pantalla.release(); pantalla = null; }
+    } catch (e) { pantalla = null; }
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') mantenerPantalla(); });
   function textoEstado() {
     var n = subiendo();
-    if (n) return 'Subiendo ' + n + (n === 1 ? ' archivo' : ' archivos') + '… Puedes seguir escribiendo.';
+    if (n) return 'Subiendo ' + n + (n === 1 ? ' archivo' : ' archivos') + '… Mantén esta pantalla abierta; puedes seguir escribiendo.';
     return 'Mientras escribes, se guarda un borrador en este dispositivo.';
   }
-  function pintarEvs() { var el = $('#huEvs'); if (el) el.innerHTML = listaEvidencias(); var t = $('#huEstadoForm'); if (t) t.textContent = textoEstado(); }
+  function pintarEvs() { mantenerPantalla(); var el = $('#huEvs'); if (el) el.innerHTML = listaEvidencias(); var t = $('#huEstadoForm'); if (t) t.textContent = textoEstado(); }
   function vForm() {
     if (!prepararForm()) return;
     var f = H.form, c = cat(), editar = !!f.id, sede = sedeDe(f.curso) || U().sede, lim = S.hu.limites;
@@ -615,10 +629,10 @@ window.HU_MODULO = function (EA) {
       }).join('') + '<button type="button" data-hu="otro" aria-pressed="' + f.otroOn + '">Otro</button></div>' +
       (f.otroOn ? '<label class="f"><span>¿Qué otro recurso?</span><input type="text" id="huRecOtro" maxlength="120" value="' + esc(f.recursoOtro) + '" placeholder="Ej.: material concreto"></label>' : '') + '</div>' +
       '<label class="f"><span>Metodología <em>· opcional</em></span><input type="text" id="huMet" maxlength="1000" value="' + esc(f.metodologia) + '" placeholder="Ej.: aprendizaje basado en proyectos, trabajo cooperativo"></label>' +
-      '<div class="fg" role="radiogroup" aria-labelledby="huEstL"><span class="lbl" id="huEstL">Estado del contenido</span><div class="estados">' +
+      '<fieldset class="fg"><legend class="lbl">Estado del contenido</legend><div class="estados">' +
       Object.keys(S.hu.estados).map(function (k) {
-        return '<button type="button" role="radio" data-hu="estado" data-v="' + k + '" aria-checked="' + (f.estado === k) + '"><i aria-hidden="true"></i>' + esc(S.hu.estados[k]) + '</button>';
-      }).join('') + '</div></div>' +
+        return '<label class="' + (f.estado === k ? 'on' : '') + '"><input type="radio" name="huEstado" value="' + k + '"' + (f.estado === k ? ' checked' : '') + '>' + esc(S.hu.estados[k]) + '</label>';
+      }).join('') + '</div></fieldset>' +
       (f.estado && f.estado !== 'completo' ? '<label class="f"><span>¿Qué quedó pendiente para la próxima clase?</span><textarea id="huPend" maxlength="600" placeholder="Ej.: Faltó elaborar el esquema del proceso digestivo.">' + esc(f.pendiente) + '</textarea></label>' : '') +
       '<div class="fg"><span class="lbl">Evidencia de la clase <em>· opcional</em></span>' +
       '<label class="drop" id="huDrop"><input type="file" id="huArchivos" multiple accept="' + ACCEPT + '">' + ICO.subir +
@@ -732,10 +746,10 @@ window.HU_MODULO = function (EA) {
       H.subidas = H.subidas.filter(function (x) { return x !== s; });
       s.form.evidencias.push(archivo);
       EA.store(claveBorrador(s.form.id), s.form);
-      if (s.form === H.form) pintarEvs();
+      if (s.form === H.form) pintarEvs(); else mantenerPantalla();
     }).catch(function (e) {
       s.estado = 'error'; s.msg = e.message || 'No se pudo subir.';
-      if (s.form === H.form) pintarEvs();
+      if (s.form === H.form) pintarEvs(); else mantenerPantalla();
     });
   }
   function quitarEvidencia(i) {
@@ -802,7 +816,7 @@ window.HU_MODULO = function (EA) {
     var d = H.det[S.id], id = boton.dataset.a;
     if (EA.DEMO) { EA.toast('En el portal publicado, el archivo se abre en Google Drive con tu cuenta.'); return; }
     var w = null;
-    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    try { w = window.open('', '_blank'); if (w) w.opener = null; } catch (e) { w = null; }
     boton.disabled = true;
     EA.api('evidenciaAbrir', { huella: d.id, archivo: id }).then(function (r) {
       boton.disabled = false;
@@ -931,13 +945,12 @@ window.HU_MODULO = function (EA) {
   function csvRegistros() {
     var b = document.querySelector('[data-hu="regCsv"]'); if (b) { b.disabled = true; b.textContent = 'Preparando…'; }
     EA.api('huExportar', filtrosRegistro()).then(function (r) {
-      var celda = function (x) { x = x == null ? '' : String(x); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
       var filas = [['Fecha', 'Sede', 'Curso', 'Paralelos', 'Asignatura', 'Docente', 'Correo', 'Tema', 'Contenidos desarrollados', 'Actividades de los estudiantes',
         'Recursos', 'Otro recurso', 'Metodología', 'Estado', 'Quedó pendiente', 'Evidencias', 'Registrada', 'Editada']].concat(r.filas.map(function (x) {
         return [x.fecha, x.sede, x.curso, x.paralelos.join(', '), x.asignatura, x.docente, x.email, x.tema, x.contenidos, x.actividades, x.recursos.join(', '), x.recursoOtro,
           x.metodologia, S.hu.estados[x.estado] || x.estado, x.pendiente, x.evidencias.length, String(x.creado).replace('T', ' '), String(x.editado || '').replace('T', ' ')];
       }));
-      EA.descargar('huellas-de-clase-' + EA.hoy() + '.csv', '﻿' + filas.map(function (f) { return f.map(celda).join(';'); }).join('\r\n'));
+      EA.descargar('huellas-de-clase-' + EA.hoy() + '.csv', EA.csv(filas));
       EA.toast('Archivo descargado: ábrelo con Excel o Numbers.');
     }).catch(function (e) { EA.toast(e.message, true); })
       .then(function () { var b2 = document.querySelector('[data-hu="regCsv"]'); if (b2) { b2.disabled = false; b2.textContent = 'Exportar a Excel (CSV)'; } });
@@ -961,7 +974,6 @@ window.HU_MODULO = function (EA) {
     if (act === 'par') { alternar(f.paralelos, v); a.setAttribute('aria-pressed', f.paralelos.indexOf(v) >= 0); guardarBorrador(); refrescarPendiente(); return true; }
     if (act === 'rec') { alternar(f.recursos, v); a.setAttribute('aria-pressed', f.recursos.indexOf(v) >= 0); guardarBorrador(); return true; }
     if (act === 'otro') { f.otroOn = !f.otroOn; guardarBorrador(); vForm(); if (f.otroOn) { var o = $('#huRecOtro'); if (o) o.focus(); } return true; }
-    if (act === 'estado') { f.estado = v; guardarBorrador(); vForm(); if (v !== 'completo') { var p = $('#huPend'); if (p) p.focus(); } return true; }
     if (act === 'repetir') {
       var u = S.hu.mias[0]; if (!u) return true;
       var sede = sedeDe(u.curso) || U().sede, lista = cat().asignaturas[sede] || [];
@@ -1053,6 +1065,12 @@ window.HU_MODULO = function (EA) {
     if (t.id === 'huAsig' && f) {
       if (t.value === '__otra') { f.otraAsig = true; f.asignatura = ''; guardarBorrador(); vForm(); var o = $('#huAsigOtra'); if (o) o.focus(); }
       else { var eraOtra = f.otraAsig; f.otraAsig = false; f.asigTexto = ''; f.asignatura = t.value; guardarBorrador(); if (eraOtra) vForm(); else refrescarPendiente(); }
+      return true;
+    }
+    if (t.name === 'huEstado' && f) {
+      f.estado = t.value; guardarBorrador(); vForm();
+      var sig = t.value !== 'completo' ? $('#huPend') : document.querySelector('input[name="huEstado"][value="completo"]');
+      if (sig) sig.focus();
       return true;
     }
     if (t.id === 'huArchivos') { adjuntar(t.files); t.value = ''; return true; }
@@ -1170,7 +1188,9 @@ window.HU_MODULO = function (EA) {
   }
   function fFecha(f) { if (!f) return ''; var p = String(f).slice(0, 10).split('-'); return Number(p[2]) + ' ' + MESES[Number(p[1]) - 1]; }
   function fFechaLarga(f) { if (!f) return ''; var p = String(f).slice(0, 10).split('-'); return Number(p[2]) + ' ' + MESES[Number(p[1]) - 1] + ' ' + p[0] + (String(f).length > 10 ? ' · ' + String(f).slice(11, 16) : ''); }
-  function hoy() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function iso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function hoy() { return iso(new Date()); }
+  function haceDias(n) { var d = new Date(); d.setDate(d.getDate() - n); return iso(d); }
   function ahoraHM() { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
   function num1(x) { return x == null ? '—' : String(Math.round(x * 10) / 10).replace('.', ','); }
   function esEval() { return S.boot && S.boot.usuario.role === 'evaluador'; }
@@ -1194,9 +1214,11 @@ window.HU_MODULO = function (EA) {
   function store(k, v) { try { if (v === undefined) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function crit(id) { return REA.criterios[id]; }
-  function strip(t, cls) { return '<span class="strip ' + (cls || '') + '">' + esc(t) + '</span>'; }
-
-  function haceDias(n) { var d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  // CSV para Excel en español: separador ";" y BOM para que respete tildes y eñes.
+  function csv(filas) {
+    var celda = function (x) { x = x == null ? '' : String(x); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    return '\ufeff' + filas.map(function (r) { return r.map(celda).join(';'); }).join('\r\n');
+  }
   function descargar(nombre, texto) {
     var url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
     var a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click();
@@ -1206,7 +1228,7 @@ window.HU_MODULO = function (EA) {
   /* ---------------- módulos: Huella de clases ---------------- */
   // El portal comparte con cada módulo lo mínimo: estado, utilidades y navegación.
   var EA = { S: S, DEMO: DEMO, esc: esc, $: $, $$: $$, api: api, toast: toast, tb: tb, go: go, loading: loading, fFecha: fFecha, fFechaLarga: fFechaLarga,
-    hoy: hoy, haceDias: haceDias, store: store, load: load, descargar: descargar, renderWho: function () { renderWho(); } };
+    iso: iso, hoy: hoy, haceDias: haceDias, store: store, load: load, csv: csv, descargar: descargar, renderWho: function () { renderWho(); } };
   var HU = window.HU_MODULO ? window.HU_MODULO(EA) : null;
 
   /* ---------------- estructura ---------------- */
@@ -1281,7 +1303,6 @@ window.HU_MODULO = function (EA) {
     if (v === 'conversacion') return vConversacion();
     if (v === 'registros') return vRegistros();
   }
-  function refreshBoot() { return api('bootstrap').then(function (b) { S.boot = b; }); }
   function tb(sub, title, acts, meta) {
     return '<div class="tb"><div class="t"><span class="sub">' + sub + '</span><h1>' + title + '</h1>' + (meta ? '<p class="meta">' + meta + '</p>' : '') + '</div>' + (acts ? '<div class="acts">' + acts + '</div>' : '') + '</div>';
   }
@@ -1340,7 +1361,7 @@ window.HU_MODULO = function (EA) {
   function vNuevaVisita() {
     if (!esEval()) return go('visitas');
     var b = S.boot, f = S.form;
-    var tiposVisita = b.catalogos.tipos.filter(function (t) { return t !== 'Calibración'; });
+    var tiposVisita = b.catalogos.tipos;
     if (!f.inic) { S.form = f = { inic: 1, espacio: 'Aula', tipo: tiposVisita[0], trimestre: b.config.trimestre, fecha: hoy(), hora: ahoraHM() }; }
     var docs = b.docentes.filter(function (d) { return d.activo; });
     var h = tb('Visitas', 'Nueva visita', '<button class="btn ghost" data-go="visitas">Cancelar</button>');
@@ -1806,14 +1827,13 @@ window.HU_MODULO = function (EA) {
       }).join('') + '</tbody></table></div>';
   }
   function csvRegistros(l) {
-    var celda = function (x) { x = x == null ? '' : String(x); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
     var est = { abierta: 'Puntuando', revision: 'En revisión', consolidada: 'Por verificar', verificada: 'Verificada' };
     var filas = [['Código', 'Fecha', 'Hora', 'Trimestre', 'Tipo de visita', 'Docente', 'Asignatura', 'Subnivel', 'Curso', 'Espacio', 'Estado', 'Nota (/100)', 'Nivel', 'Autorreflexión']].concat(l.map(function (v) {
       var d = docente(v.docente_id);
       return [codigo(v), v.fecha, v.hora, v.trimestre, v.tipoVisita, d.nombre, v.asignatura || d.asignatura, v.subnivel, v.curso, v.espacio, est[v.estado] || v.estado,
         v.puntaje != null ? num1(v.puntaje) : '', v.categoria ? REA.niveles[v.categoria - 1] : '', v.autoRespondida ? 'Respondida' : v.autoEnviada ? 'Enviada' : ''];
     }));
-    return '﻿' + filas.map(function (r) { return r.map(celda).join(';'); }).join('\r\n');
+    return csv(filas);
   }
   /* ---------------- resultados ---------------- */
   function vResultados() {
@@ -2011,6 +2031,7 @@ window.HU_MODULO = function (EA) {
       return;
     }
     if (act === 'salir') { if (window.REA_WEB) window.REA_WEB.salir(); return; }
+    if (act === 'recargarPagina') { location.reload(); return; }
     if (act === 'copiar') {
       var inp = $('#enlaceAuto'); if (!inp) return;
       var copiado = function () { toast('Enlace copiado.'); };
@@ -2136,7 +2157,7 @@ window.HU_MODULO = function (EA) {
       $('#app').innerHTML = '<div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><header class="topbar"><div class="wrap gut"><span class="thumb"><img src="' + REA_LOGO_SYM + '" alt="Eight Academy"></span><div class="t"><b>EA Conecta</b><span>Experiencias de Aprendizaje · Eight Academy</span></div></div></header>' +
         '<div class="wrap gut" style="padding-block:28px 60px;max-width:640px"><div class="tb"><div class="t"><span class="sub">EA Conecta</span><h1>' + (otra ? 'No tienes acceso a este portal' : 'No se pudo abrir el portal') + '</h1></div></div>' +
         '<p class="err" style="margin-top:16px">' + esc(e.message) + '</p><div class="row" style="margin-top:12px">' +
-        (otra ? '<button class="btn" type="button" data-act="salir">Usar otra cuenta</button>' : '<button class="btn" type="button" onclick="location.reload()">Intentar de nuevo</button>') + '</div></div>';
+        (otra ? '<button class="btn" type="button" data-act="salir">Usar otra cuenta</button>' : '<button class="btn" type="button" data-act="recargarPagina">Intentar de nuevo</button>') + '</div></div>';
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
