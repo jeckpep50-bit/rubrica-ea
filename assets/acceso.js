@@ -61,7 +61,7 @@ window.REA_WEB = (function () {
       // Diálogo sobre el portal: lo que estaba en pantalla sigue ahí.
       capa.innerHTML = '<div class="dialogo"><span class="eyebrow">EA Conecta</span><h2>' + esc(titulo) + '</h2><p>' + esc(texto) + '</p><div id="gsiBoton" class="acceso-boton"></div>' + aviso + '</div>';
     } else {
-      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige tu sede: Primaria o Secundaria', 'Elige qué vas a hacer: subir cuadernillos de clase, tareas o refuerzos; pedir plantillas o recursos digitales para podcast, aula inmersiva o metaverso; o subir los trabajos de tus estudiantes'];
+      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige tu sede: Primaria o Secundaria', 'Elige qué vas a hacer: registrar la huella de tus clases; pedir plantillas o recursos digitales para podcast, aula inmersiva o metaverso; o subir los trabajos de tus estudiantes'];
       capa.innerHTML = franja + '<section class="hero"><div class="wrap gut">' +
         '<div class="hero-marca"><picture><source srcset="assets/logo.png" media="(prefers-color-scheme: dark)"><img src="assets/logo-oscuro.png" alt="Eight Academy · Unidad Educativa" width="560" height="80"></picture>' + franja +
         '<p>' + esc(opciones.sub || 'Departamento de Experiencias de Aprendizaje') + '</p></div>' +
@@ -89,18 +89,19 @@ window.REA_WEB = (function () {
     e.codigo = 'RED';
     return e;
   }
-  function enviar(cuerpo) {
+  function enviar(cuerpo, tiempo) {
     var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    var reloj = ctl ? setTimeout(function () { ctl.abort(); }, 45000) : null;
+    var reloj = ctl ? setTimeout(function () { ctl.abort(); }, tiempo || 45000) : null;
     return fetch(CFG.API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo), signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (reloj) clearTimeout(reloj); return r.json(); }, function () { if (reloj) clearTimeout(reloj); throw errorDeRed(); })
       .then(null, function (e) { if (e && e.codigo) throw e; throw errorDeRed(); });
   }
-  function llamar(accion, datos) {
+  // op.tiempo: espera máxima en ms (las partes de una subida pueden tardar más que una consulta).
+  function llamar(accion, datos, op) {
     function intento(yaReintentado) {
       var listo = vigente() ? Promise.resolve() : pedirSesion(huboSesion ? 'expirada' : 'inicio');
       return listo.then(function () {
-        return enviar({ token: sesion.t, accion: accion, datos: datos || {} });
+        return enviar({ token: sesion.t, accion: accion, datos: datos || {} }, op && op.tiempo);
       }).then(function (j) {
         if (j && j.ok) return j.data;
         if (j && j.codigo === 'AUTH' && !yaReintentado) { borrar(); return intento(true); }
