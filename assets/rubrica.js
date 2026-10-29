@@ -155,13 +155,67 @@ function huParsearCatalogo(filas) {
   return c;
 }
 
+/* ---------------- reglas compartidas (Huella de clases y Pedir un recurso) ---------------- */
+// Errores de validación: el mensaje es para la persona; no se registran como fallas del portal.
+function huErr(m) { var e = new Error(m); e.codigo = 'VALIDACION'; throw e; }
+function huTxt(v, max) { v = v == null ? '' : String(v).replace(/\r\n?/g, '\n').trim(); return v.length > max ? v.slice(0, max) : v; }
+function huLow(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+function huPartes(s) { return String(s == null ? '' : s).split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+function huJson(s, d) { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } }
+function huUnicos(a) { var o = []; a.forEach(function (x) { if (o.indexOf(x) < 0) o.push(x); }); return o; }
+function huSedeDeCurso(c, curso) { for (var i = 0; i < HU_SEDES.length; i++) if ((c.cursos[HU_SEDES[i]] || []).indexOf(curso) >= 0) return HU_SEDES[i]; return ''; }
+// Curso, paralelos y asignatura contra el catálogo. "previa": el registro que se edita (sus valores se respetan
+// aunque ya no estén en el catálogo).
+function huValidarClase(c, p, previa) {
+  var curso = huTxt(p.curso, 40);
+  if (!curso) huErr('Elige el curso.');
+  var sede = huSedeDeCurso(c, curso);
+  if (!sede) { if (previa && previa.curso === curso) sede = String(previa.sede); else huErr('Elige el curso de la lista.'); }
+  var permitidos = c.paralelos[sede] || [], antes = previa ? huPartes(previa.paralelos) : [];
+  var pars = huUnicos((Array.isArray(p.paralelos) ? p.paralelos : []).map(function (x) { return huTxt(x, 12); }).filter(Boolean));
+  if (!pars.length) huErr('Marca al menos un paralelo.');
+  pars.forEach(function (x) { if (permitidos.indexOf(x) < 0 && antes.indexOf(x) < 0) huErr('El paralelo ' + x + ' no está en la lista de ' + sede + '.'); });
+  pars.sort(function (a, b) { var i = permitidos.indexOf(a), j = permitidos.indexOf(b); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
+  var asignatura = huTxt(p.asignatura, 80);
+  if (asignatura.length < 2) huErr('Elige la asignatura.');
+  if ((c.asignaturas[sede] || []).indexOf(asignatura) < 0 && !(previa && previa.asignatura === asignatura) && !p.asignaturaOtra) huErr('Elige la asignatura de la lista o escribe la tuya en «Otra».');
+  return { sede: sede, curso: curso, paralelos: pars, asignatura: asignatura };
+}
+// Archivos (subidos por esa misma persona) y enlaces https. "previas": adjuntos que ya tenía el registro.
+function huValidarAdjuntos(db, ctx, lista, previas, que) {
+  var cf = db.config(), arch = [], enl = [];
+  (Array.isArray(lista) ? lista : []).forEach(function (e) {
+    if (!e || typeof e !== 'object') return;
+    if (e.t === 'e') {
+      var u = huTxt(e.u, 1000);
+      if (!/^https:\/\/[^\s<>"']+$/i.test(u)) huErr('Cada enlace debe empezar con https://');
+      if (enl.some(function (x) { return x.u === u; })) return;
+      var dom = (u.match(/^https:\/\/([^\/?#]+)/i) || [])[1] || 'Enlace';
+      enl.push({ t: 'e', u: u, n: huTxt(e.n, 120) || dom.replace(/^www\./, '') });
+    } else if (e.t === 'a') {
+      var id = huTxt(e.id, 120);
+      if (!/^[\w-]{6,}$/.test(id)) huErr('Uno de los archivos no es válido. Vuelve a adjuntarlo.');
+      if (arch.some(function (x) { return x.id === id; })) return;
+      var previo = (previas || []).filter(function (x) { return x.t === 'a' && x.id === id; })[0];
+      if (previo) { arch.push(previo); return; }
+      var meta = db.archivoPropio(id, ctx.email);
+      if (!meta) huErr('Uno de los archivos no se subió desde tu cuenta o ya no existe. Vuelve a adjuntarlo.');
+      arch.push({ t: 'a', id: id, n: huTxt(meta.n || e.n, 200), s: Number(meta.s) || 0, x: huExtension(meta.n || e.n) });
+    }
+  });
+  if (arch.length > cf.evidMaxArchivos) huErr('Puedes adjuntar hasta ' + cf.evidMaxArchivos + ' archivos por ' + que + '.');
+  if (enl.length > HU_MAX_ENLACES) huErr('Puedes agregar hasta ' + HU_MAX_ENLACES + ' enlaces por ' + que + '.');
+  return arch.concat(enl);
+}
+// Después de guardar: los archivos nuevos dejan de ser borradores; los que se quitaron van a la papelera de Drive.
+function huCerrarAdjuntos(db, nuevos, previas, marca) {
+  var es = function (lista, e) { return lista.some(function (x) { return x.t === 'a' && x.id === e.id; }); };
+  nuevos.forEach(function (e) { if (e.t === 'a' && !es(previas, e)) db.marcarArchivo(e.id, marca); });
+  previas.forEach(function (e) { if (e.t === 'a' && !es(nuevos, e)) db.aPapelera(e.id); });
+}
+
 function crearServicioHuella(db) {
-  function err(m) { var e = new Error(m); e.codigo = 'VALIDACION'; throw e; }
-  function txt(v, max) { v = v == null ? '' : String(v).replace(/\r\n?/g, '\n').trim(); return v.length > max ? v.slice(0, max) : v; }
-  function low(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
-  function partes(s) { return String(s == null ? '' : s).split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
-  function json(s, d) { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } }
-  function unicos(a) { var o = []; a.forEach(function (x) { if (o.indexOf(x) < 0) o.push(x); }); return o; }
+  var err = huErr, txt = huTxt, low = huLow, partes = huPartes, json = huJson, unicos = huUnicos;
   function vivas() { return db.huellas().filter(function (h) { return h.id !== '' && h.id != null && !h.eliminado; }); }
   function orden(a, b) { var x = String(b.fecha) + String(b.creado), y = String(a.fecha) + String(a.creado); return x < y ? -1 : x > y ? 1 : 0; }
   function ligera(h) {
@@ -186,7 +240,6 @@ function crearServicioHuella(db) {
   }
   function puedeRegistros(ctx) { return !!(ctx.global || (ctx.coord && ctx.coord.length)); }
   function porId(id) { id = String(id || ''); var r = vivas().filter(function (h) { return String(h.id) === id; }); return r[0] || null; }
-  function sedeDeCurso(c, curso) { for (var i = 0; i < HU_SEDES.length; i++) if ((c.cursos[HU_SEDES[i]] || []).indexOf(curso) >= 0) return HU_SEDES[i]; return ''; }
   function usuario(email) { return db.usuarios().filter(function (u) { return low(u.email) === email; })[0] || null; }
   function completaDe(h) {
     var full = db.huellaCompleta(h);
@@ -198,35 +251,9 @@ function crearServicioHuella(db) {
     o.contenidos = String(full.contenidos || ''); o.actividades = String(full.actividades || '');
     o.recursoOtro = String(full.recurso_otro || ''); o.metodologia = String(full.metodologia || '');
     o.evidencias = json(full.evidencias, []);
+    o.solicitud = String(full.solicitud || '');
     o.propia = low(full.email) === ctx.email;
     return o;
-  }
-
-  /* ---------------- evidencias ---------------- */
-  function evidencias(ctx, lista, previas) {
-    var cf = db.config(), arch = [], enl = [];
-    (Array.isArray(lista) ? lista : []).forEach(function (e) {
-      if (!e || typeof e !== 'object') return;
-      if (e.t === 'e') {
-        var u = txt(e.u, 1000);
-        if (!/^https:\/\/[^\s<>"']+$/i.test(u)) err('Cada enlace debe empezar con https://');
-        if (enl.some(function (x) { return x.u === u; })) return;
-        var dom = (u.match(/^https:\/\/([^\/?#]+)/i) || [])[1] || 'Enlace';
-        enl.push({ t: 'e', u: u, n: txt(e.n, 120) || dom.replace(/^www\./, '') });
-      } else if (e.t === 'a') {
-        var id = txt(e.id, 120);
-        if (!/^[\w-]{6,}$/.test(id)) err('Uno de los archivos no es válido. Vuelve a adjuntarlo.');
-        if (arch.some(function (x) { return x.id === id; })) return;
-        var previo = previas.filter(function (x) { return x.t === 'a' && x.id === id; })[0];
-        if (previo) { arch.push(previo); return; }
-        var meta = db.archivoPropio(id, ctx.email);
-        if (!meta) err('Uno de los archivos no se subió desde tu cuenta o ya no existe. Vuelve a adjuntarlo.');
-        arch.push({ t: 'a', id: id, n: txt(meta.n || e.n, 200), s: Number(meta.s) || 0, x: huExtension(meta.n || e.n) });
-      }
-    });
-    if (arch.length > cf.evidMaxArchivos) err('Puedes adjuntar hasta ' + cf.evidMaxArchivos + ' archivos por huella.');
-    if (enl.length > HU_MAX_ENLACES) err('Puedes agregar hasta ' + HU_MAX_ENLACES + ' enlaces por huella.');
-    return arch.concat(enl);
   }
 
   var S = {};
@@ -267,18 +294,7 @@ function crearServicioHuella(db) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) err('Elige la fecha de la clase.');
     if (fecha > db.hoy()) err('La fecha de la clase no puede ser futura.');
     if (fecha < '2020-01-01') err('La fecha de la clase no es válida.');
-    var curso = txt(p.curso, 40);
-    if (!curso) err('Elige el curso.');
-    var sede = sedeDeCurso(c, curso);
-    if (!sede) { if (previa && previa.curso === curso) sede = String(previa.sede); else err('Elige el curso de la lista.'); }
-    var permitidos = c.paralelos[sede] || [], antes = previa ? partes(previa.paralelos) : [];
-    var pars = unicos((Array.isArray(p.paralelos) ? p.paralelos : []).map(function (x) { return txt(x, 12); }).filter(Boolean));
-    if (!pars.length) err('Marca al menos un paralelo.');
-    pars.forEach(function (x) { if (permitidos.indexOf(x) < 0 && antes.indexOf(x) < 0) err('El paralelo ' + x + ' no está en la lista de ' + sede + '.'); });
-    pars.sort(function (a, b) { var i = permitidos.indexOf(a), j = permitidos.indexOf(b); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
-    var asignatura = txt(p.asignatura, 80);
-    if (asignatura.length < 2) err('Elige la asignatura.');
-    if ((c.asignaturas[sede] || []).indexOf(asignatura) < 0 && !(previa && previa.asignatura === asignatura) && !p.asignaturaOtra) err('Elige la asignatura de la lista o escribe la tuya en «Otra».');
+    var cl = huValidarClase(c, p, previa), sede = cl.sede, curso = cl.curso, pars = cl.paralelos, asignatura = cl.asignatura;
     var tema = txt(p.tema, 160);
     if (tema.length < 3) err('Escribe el tema de la clase.');
     var contenidos = txt(p.contenidos, 3000);
@@ -295,22 +311,20 @@ function crearServicioHuella(db) {
     var pendiente = estado === 'completo' ? '' : txt(p.pendiente, 600);
     if (estado !== 'completo' && pendiente.length < 3) err('Escribe qué quedó pendiente para la próxima clase.');
     var previasEv = fullPrevia ? json(fullPrevia.evidencias, []) : [];
-    var ev = evidencias(ctx, p.evidencias, previasEv);
+    var ev = huValidarAdjuntos(db, ctx, p.evidencias, previasEv, 'huella');
+    // Recurso solicitado que se usó en esta clase (opcional: muchas clases no usan ninguno).
+    var solAntes = fullPrevia ? String(fullPrevia.solicitud || '') : '', sol = txt(p.solicitud, 40);
+    if (sol && sol !== solAntes && db.solicitudVinculable) db.solicitudVinculable(ctx, sol);
 
     var obj = fullPrevia || { id: db.uuid(), creado: db.ahora(), email: ctx.email, actualizado: '', eliminado: '' };
     obj.docente = ctx.nombre || obj.docente || ctx.email;
     obj.sede = sede; obj.fecha = fecha; obj.curso = curso; obj.paralelos = pars.join(', '); obj.asignatura = asignatura;
     obj.tema = tema; obj.recursos = recursos.join(', '); obj.estado = estado; obj.pendiente = pendiente; obj.n_evidencias = ev.length;
     obj.contenidos = contenidos; obj.actividades = actividades; obj.recurso_otro = recursoOtro; obj.metodologia = metodologia;
-    obj.evidencias = JSON.stringify(ev);
+    obj.evidencias = JSON.stringify(ev); obj.solicitud = sol;
     if (fullPrevia) { obj.actualizado = db.ahora(); db.actualizarHuella(obj); } else db.insertarHuella(obj);
-    // Los archivos nuevos dejan de ser borradores; los que se quitaron al editar van a la papelera de Drive.
-    ev.forEach(function (e) {
-      if (e.t === 'a' && !previasEv.some(function (x) { return x.t === 'a' && x.id === e.id; })) db.marcarArchivo(e.id, obj.id);
-    });
-    previasEv.forEach(function (e) {
-      if (e.t === 'a' && !ev.some(function (x) { return x.t === 'a' && x.id === e.id; })) db.aPapelera(e.id);
-    });
+    huCerrarAdjuntos(db, ev, previasEv, obj.id);
+    if (sol !== solAntes && db.vincularSolicitud) db.vincularSolicitud(solAntes, sol, obj.id);
     var guardada = porId(obj.id);
     return { huella: ligera(guardada), detalle: publica(completaDe(guardada), ctx) };
   };
@@ -377,7 +391,197 @@ function crearServicioHuella(db) {
 
   return S;
 }
-if (typeof module !== 'undefined') module.exports = { crearServicioHuella: crearServicioHuella, huParsearCatalogo: huParsearCatalogo, huExtension: huExtension, HU_TIPOS: HU_TIPOS, HU_CATALOGO_INICIAL: HU_CATALOGO_INICIAL, HU_SEDES: HU_SEDES };
+if (typeof module !== 'undefined') module.exports = { huValidarClase: huValidarClase, crearServicioHuella: crearServicioHuella, huParsearCatalogo: huParsearCatalogo, huExtension: huExtension, HU_TIPOS: HU_TIPOS, HU_CATALOGO_INICIAL: HU_CATALOGO_INICIAL, HU_SEDES: HU_SEDES };
+
+/* ============================================================
+   EA Conecta · Pedir un recurso · reglas (independientes del almacenamiento)
+   Se usan igual en el servidor (Apps Script) y en la demostración; las constantes y las fechas, también en el navegador.
+   db: { config(), catalogo(), solicitudes(), insertarSolicitud(o), actualizarSolicitud(o), plantillas(),
+         archivoPropio(id, email), marcarArchivo(id, marca), aPapelera(id), avisar(m), ahora(), hoy(), uuid() }
+   ctx: { email, nombre, depto }   depto = Departamento de Experiencias de Aprendizaje (atiende las solicitudes)
+   ============================================================ */
+var RE_TIPOS = {
+  plantilla: 'Plantilla lista',
+  medida: 'Recurso a medida',
+  acompanamiento: 'Acompañamiento en la clase',
+  capacitacion: 'Capacitación corta'
+};
+var RE_TIPOS_DESC = {
+  plantilla: 'Del catálogo: la abres y la usas al instante.',
+  medida: 'El Departamento lo prepara para tu clase.',
+  acompanamiento: 'Alguien del Departamento te acompaña en el aula.',
+  capacitacion: '15 minutos para aprender a usar la herramienta.'
+};
+var RE_HERRAMIENTAS = ['iPad', 'MAXHUB', 'Metaverso', 'Aula inmersiva', 'Podcast', 'Por recomendar'];
+var RE_CON_RESERVA = ['Aula inmersiva', 'Metaverso', 'Podcast'];   // espacios que se reservan en el sistema de reservas
+var RE_ESTADOS = { recibida: 'Recibida', proceso: 'En proceso', lista: 'Lista', entregada: 'Entregada', cancelada: 'Cancelada' };
+
+// Días hábiles (lunes a viernes). No descuenta feriados.
+function reSumarHabiles(iso, n) {
+  var p = String(iso).split('-'), d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) n--; }
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+function reDiasHabiles(desde, hasta) {
+  var n = 0, d = desde;
+  while (d < hasta && n < 400) { d = reSumarHabiles(d, 1); n++; }
+  return n;
+}
+
+function crearServicioRecursos(db) {
+  var err = huErr, txt = huTxt, low = huLow, partes = huPartes, json = huJson;
+  function todas() { return db.solicitudes().filter(function (s) { return s.id !== '' && s.id != null; }); }
+  function porId(id) { id = String(id || ''); return todas().filter(function (s) { return String(s.id) === id; })[0] || null; }
+  function orden(a, b) { var x = String(b.creado), y = String(a.creado); return x < y ? -1 : x > y ? 1 : 0; }
+  function plazo() { return db.config().solicitudDias; }
+  function publica(s, ctx) {
+    return {
+      id: String(s.id), creado: String(s.creado || ''), email: String(s.email || ''), docente: String(s.docente || ''), sede: String(s.sede || ''),
+      tipo: String(s.tipo || ''), herramienta: String(s.herramienta || ''), fechaUso: String(s.fecha_uso || '').slice(0, 10),
+      curso: String(s.curso || ''), paralelos: partes(s.paralelos), asignatura: String(s.asignatura || ''), periodos: Number(s.periodos) || 1,
+      reserva: String(s.reserva || ''), logro: String(s.logro || ''), actividad: String(s.actividad || ''), evidenciaLogro: String(s.evidencia_logro || ''),
+      material: json(s.material, []), estado: String(s.estado || ''), fueraPlazo: s.fuera_plazo === 'sí',
+      fechas: { recibida: String(s.creado || ''), proceso: String(s.en_proceso || ''), lista: String(s.lista || ''), entregada: String(s.entregada || ''), cancelada: String(s.cancelada || '') },
+      respuestaEnlace: String(s.respuesta_enlace || ''), respuestaNota: String(s.respuesta_nota || ''), atendidoPor: String(s.atendido_por || ''),
+      huellaId: String(s.huella_id || ''), propia: low(s.email) === ctx.email
+    };
+  }
+  function propiaODepto(ctx, s) { if (low(s.email) !== ctx.email && !ctx.depto) err('No tienes acceso a esta solicitud.'); }
+  function soloDepto(ctx) { if (!ctx.depto) err('Las solicitudes las atiende el Departamento de Experiencias de Aprendizaje.'); }
+
+  var R = {};
+
+  R.inicio = function (ctx) {
+    var cf = db.config(), l = todas();
+    return {
+      tipos: RE_TIPOS, tiposDesc: RE_TIPOS_DESC, herramientas: RE_HERRAMIENTAS, conReserva: RE_CON_RESERVA, estados: RE_ESTADOS,
+      plazo: plazo(), reservasUrl: cf.reservasUrl, depto: !!ctx.depto,
+      plantillas: db.plantillas().filter(function (p) { return String(p.activo).trim().toLowerCase() !== 'no' && /^https:\/\//.test(String(p.enlace)); })
+        .map(function (p) { return { herramienta: String(p.herramienta), titulo: String(p.titulo), descripcion: String(p.descripcion || ''), enlace: String(p.enlace) }; }),
+      mias: l.filter(function (s) { return low(s.email) === ctx.email; }).sort(orden).map(function (s) { return publica(s, ctx); }),
+      porAtender: ctx.depto ? l.filter(function (s) { return s.estado === 'recibida' || s.estado === 'proceso'; }).length : 0
+    };
+  };
+
+  R.guardar = function (ctx, p) {
+    p = p || {};
+    var tipo = String(p.tipo || '');
+    if (tipo === 'plantilla') err('Las plantillas se abren desde el catálogo; no hace falta una solicitud.');
+    if (!RE_TIPOS[tipo]) err('Elige qué tipo de apoyo necesitas.');
+    var herramienta = String(p.herramienta || '');
+    if (RE_HERRAMIENTAS.indexOf(herramienta) < 0) err('Elige la herramienta.');
+    var hoy = db.hoy(), fechaUso = txt(p.fechaUso, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaUso)) err('Elige la fecha en que usarás el recurso.');
+    if (fechaUso < hoy) err('La fecha de uso no puede ser pasada.');
+    var cl = huValidarClase(db.catalogo(), p, null);
+    var periodos = Math.floor(Number(p.periodos));
+    if (!(periodos >= 1 && periodos <= 8)) err('Indica cuántos periodos de clase dura.');
+    var reserva = 'no aplica';
+    if (RE_CON_RESERVA.indexOf(herramienta) >= 0) {
+      reserva = String(p.reserva || '');
+      if (reserva !== 'sí' && reserva !== 'no') err('Indica si ya reservaste el espacio.');
+    }
+    var logro = txt(p.logro, 1000), actividad = txt(p.actividad, 1500), evidencia = txt(p.evidenciaLogro, 1000);
+    if (logro.length < 3) err('Escribe qué deben lograr tus estudiantes.');
+    if (actividad.length < 3) err('Escribe qué harán tus estudiantes con el recurso.');
+    var material = huValidarAdjuntos(db, ctx, p.material, [], 'solicitud');
+    if (!material.length) err('Adjunta el material de referencia (archivo o enlace): así sabemos exactamente qué buscas.');
+    var s = {
+      id: db.uuid(), creado: db.ahora(), actualizado: '', email: ctx.email, docente: ctx.nombre || ctx.email, sede: cl.sede,
+      tipo: tipo, herramienta: herramienta, fecha_uso: fechaUso, curso: cl.curso, paralelos: cl.paralelos.join(', '), asignatura: cl.asignatura,
+      periodos: periodos, reserva: reserva, logro: logro, actividad: actividad, evidencia_logro: evidencia, material: JSON.stringify(material),
+      estado: 'recibida', fuera_plazo: fechaUso < reSumarHabiles(hoy, plazo()) ? 'sí' : 'no',
+      en_proceso: '', lista: '', entregada: '', cancelada: '', respuesta_enlace: '', respuesta_nota: '', atendido_por: '', huella_id: ''
+    };
+    db.insertarSolicitud(s);
+    huCerrarAdjuntos(db, material, [], 'sol-' + s.id);
+    return { solicitud: publica(porId(s.id), ctx) };
+  };
+
+  function cambiar(s, campos) { for (var k in campos) s[k] = campos[k]; s.actualizado = db.ahora(); db.actualizarSolicitud(s); return s; }
+
+  // Quien pidió cancela mientras no se empezó; el Departamento puede cerrarla con un motivo («No procede»).
+  R.cancelar = function (ctx, p) {
+    var s = porId(p && p.id);
+    if (!s) err('No encontramos esa solicitud.');
+    propiaODepto(ctx, s);
+    var nota = txt(p.nota, 600);
+    if (low(s.email) === ctx.email && !ctx.depto) {
+      if (s.estado !== 'recibida') err('Ya está en proceso: escribe al Departamento si necesitas cancelarla.');
+    } else {
+      if (s.estado === 'entregada' || s.estado === 'cancelada') err('Esta solicitud ya está cerrada.');
+      if (low(s.email) !== ctx.email && nota.length < 3) err('Escribe el motivo para quien la pidió.');
+    }
+    cambiar(s, { estado: 'cancelada', cancelada: db.ahora(), respuesta_nota: nota || s.respuesta_nota, atendido_por: ctx.depto ? ctx.email : s.atendido_por });
+    return { solicitud: publica(s, ctx) };
+  };
+
+  R.estado = function (ctx, p) {
+    soloDepto(ctx);
+    var s = porId(p && p.id);
+    if (!s) err('No encontramos esa solicitud.');
+    var nuevo = String(p.estado || '');
+    if (nuevo === 'proceso') {
+      if (s.estado !== 'recibida') err('Solo una solicitud recibida pasa a «En proceso».');
+      cambiar(s, { estado: 'proceso', en_proceso: db.ahora(), atendido_por: ctx.email });
+    } else if (nuevo === 'lista') {
+      if (s.estado !== 'recibida' && s.estado !== 'proceso') err('Esta solicitud ya no se puede marcar como lista.');
+      var enlace = txt(p.enlace, 1000), nota = txt(p.nota, 1500);
+      if (enlace && !/^https:\/\/[^\s<>"']+$/i.test(enlace)) err('El enlace del recurso debe empezar con https://');
+      if (!enlace && nota.length < 5) err('Agrega el enlace del recurso o una nota (por ejemplo, el día y la hora del acompañamiento).');
+      cambiar(s, { estado: 'lista', lista: db.ahora(), en_proceso: s.en_proceso || db.ahora(), respuesta_enlace: enlace, respuesta_nota: nota, atendido_por: ctx.email });
+      db.avisar({ para: String(s.email), nombre: String(s.docente), tipo: RE_TIPOS[s.tipo], herramienta: String(s.herramienta),
+        curso: String(s.curso) + ' ' + partes(s.paralelos).join(', '), fechaUso: String(s.fecha_uso).slice(0, 10), enlace: enlace, nota: nota });
+    } else err('Estado no válido.');
+    return { solicitud: publica(s, ctx) };
+  };
+
+  // Quien pidió confirma que recibió el recurso: así queda la fecha real de entrega.
+  R.recibido = function (ctx, p) {
+    var s = porId(p && p.id);
+    if (!s) err('No encontramos esa solicitud.');
+    if (low(s.email) !== ctx.email) err('Solo quien pidió el recurso confirma que lo recibió.');
+    if (s.estado !== 'lista') err('El recurso todavía no está listo.');
+    cambiar(s, { estado: 'entregada', entregada: db.ahora() });
+    return { solicitud: publica(s, ctx) };
+  };
+
+  R.detalle = function (ctx, p) {
+    var s = porId(p && p.id);
+    if (!s) err('No encontramos esa solicitud.');
+    propiaODepto(ctx, s);
+    return publica(s, ctx);
+  };
+
+  R.bandeja = function (ctx) {
+    soloDepto(ctx);
+    return { solicitudes: todas().sort(orden).map(function (s) { return publica(s, ctx); }), hoy: db.hoy() };
+  };
+
+  R.material = function (ctx, p) {
+    var d = R.detalle(ctx, { id: p && p.solicitud });
+    var e = d.material.filter(function (x) { return x.t === 'a' && x.id === String(p.archivo || ''); })[0];
+    if (!e) err('Ese archivo ya no está en la solicitud.');
+    return { id: e.id, n: e.n };
+  };
+
+  /* ---- vínculo con Huella de clases (opcional) ---- */
+  R.vinculable = function (ctx, id) {
+    var s = porId(id);
+    if (!s || low(s.email) !== ctx.email) err('Esa solicitud de recurso no es tuya.');
+    if (s.estado !== 'lista' && s.estado !== 'entregada') err('Solo puedes vincular un recurso que ya está listo.');
+    if (s.huella_id) err('Ese recurso ya está vinculado a otra huella.');
+  };
+  R.vincular = function (antes, nuevo, huellaId) {
+    var a = antes && porId(antes);
+    if (a && String(a.huella_id) === String(huellaId)) cambiar(a, { huella_id: '' });
+    var n = nuevo && porId(nuevo);
+    if (n) cambiar(n, n.estado === 'lista' ? { huella_id: huellaId, estado: 'entregada', entregada: db.ahora() } : { huella_id: huellaId });
+  };
+
+  return R;
+}
+if (typeof module !== 'undefined') module.exports = { crearServicioRecursos: crearServicioRecursos, reSumarHabiles: reSumarHabiles };
 
 /* EA Conecta · Huella de clases (cliente). El portal lo conecta con window.HU_MODULO(EA). */
 window.HU_MODULO = function (EA) {
@@ -397,8 +601,10 @@ window.HU_MODULO = function (EA) {
     enlace: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
     clip: svg('<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>')
   };
-  var H;
+  var H, R;
   function reiniciar() {
+    R = { form: null, formKey: '', recuperado: false, errores: [], guardando: false, det: {}, origen: 'reMias', confirmar: '', bandeja: null, tab: 'atender',
+      filtro: { herr: '', sede: '', q: '' }, bandejaErr: '' };
     H = { lista: { q: '', curso: '', est: '' }, cursosQ: '', form: null, formKey: '', recuperado: false, subidas: [], seq: 0, cola: Promise.resolve(),
       det: {}, origen: 'huMias', confirmar: false, guardando: false, errores: [], recien: '',
       reg: { per: '30', sede: '', curso: '', asig: '', est: '', q: '' }, regRes: null, regPide: 0, regErr: '' };
@@ -459,6 +665,11 @@ window.HU_MODULO = function (EA) {
   function pronto(color, ico, titulo, texto) {
     return '<section class="op pronto" aria-disabled="true"><span class="ico ' + color + '">' + ico + '</span><h2>' + titulo + '</h2><p>' + texto + '</p><div class="acts"><span class="chip">Próximamente</span></div></section>';
   }
+  function reStat() {
+    var l = S.re.mias, listas = l.filter(function (s) { return s.estado === 'lista'; }).length, curso = l.filter(function (s) { return s.estado === 'recibida' || s.estado === 'proceso'; }).length;
+    if (!listas && !curso) return '<p class="stat">Pídelo con ' + S.re.plazo + ' días hábiles de anticipación</p>';
+    return '<p class="stat">' + (listas ? '<b>' + listas + '</b> ' + (listas === 1 ? 'listo' : 'listos') + (curso ? ' · ' : '') : '') + (curso ? '<b>' + curso + '</b> en curso' : '') + '</p>';
+  }
   function vInicio() {
     var semana = S.hu.mias.filter(function (h) { return h.fecha >= lunes(); }).length, pend = porContinuar().length;
     var h = EA.tb('Portal de Recursos Institucionales · ' + esc(U().sede), 'Hola, ' + esc(primerNombre()), '', '¿Qué vas a hacer hoy?');
@@ -466,10 +677,16 @@ window.HU_MODULO = function (EA) {
       tarjeta('c1', ICO.huella, 'Huella de clases', 'Registra los contenidos que impartiste, lo que hicieron tus estudiantes y la evidencia de la clase.',
         '<p class="stat"><b>' + semana + '</b> ' + (semana === 1 ? 'registro' : 'registros') + ' esta semana' + (pend ? ' · <b>' + pend + '</b> por continuar' : '') + '</p>',
         '<button class="btn" type="button" data-go="huella">Registrar huella</button><button class="btn ghost" type="button" data-go="huMias">Mis huellas</button>') +
-      pronto('c2', ICO.recurso, 'Pedir un recurso', 'Plantillas para podcast, aula inmersiva y metaverso, o recursos digitales para tu clase.') +
+      (S.re ? tarjeta('c2', ICO.recurso, 'Pedir un recurso', 'Plantillas, recursos a medida, acompañamiento o capacitación para iPad, MAXHUB, metaverso, aula inmersiva y podcast.',
+        reStat(), '<button class="btn" type="button" data-go="recurso">Pedir un recurso</button><button class="btn ghost" type="button" data-go="reMias">Mis solicitudes</button>')
+        : pronto('c2', ICO.recurso, 'Pedir un recurso', 'Plantillas para podcast, aula inmersiva y metaverso, o recursos digitales para tu clase.')) +
       pronto('c3', ICO.trabajos, 'Trabajos de mis estudiantes', 'Sube los trabajos que crearon tus estudiantes.') +
       '</div>';
     var extra = [], p = S.hu.permisos;
+    if (S.re && S.re.depto) {
+      extra.push(tarjeta('c4', ICO.recurso, 'Solicitudes de recursos', 'Bandeja del Departamento: lo que piden los docentes, ordenado por la fecha en que lo usarán.',
+        '<p class="stat"><b>' + S.re.porAtender + '</b> por atender</p>', '<button class="btn ghost" type="button" data-go="reBandeja">Abrir bandeja</button>'));
+    }
     if (p.registros) {
       var alcance = p.global ? 'Primaria y Secundaria' : p.coord.join(' y ');
       extra.push(tarjeta('c4', ICO.registros, 'Registros de huellas', 'Consulta las huellas de clase de ' + esc(alcance) + ', con filtros y exportación a Excel.', '',
@@ -485,9 +702,13 @@ window.HU_MODULO = function (EA) {
 
   /* ---------------- formulario ---------------- */
   function claveBorrador(id) { return 'hu_borrador:' + U().email + (id ? ':' + id : ''); }
+  // Huella y Pedir un recurso comparten adjuntos, curso y borradores: estas tres funciones eligen el formulario abierto.
+  function claveDe(f) { return f && f._re ? 're_borrador:' + U().email : claveBorrador(f ? f.id : ''); }
+  function formActivo() { return S.view === 'recurso' ? R.form : H.form; }
+  function repintar() { if (S.view === 'recurso') vRecurso(); else vForm(); }
   function nuevoForm() {
     return { id: '', fecha: EA.hoy(), curso: '', paralelos: [], asignatura: '', otraAsig: false, asigTexto: '', tema: '', contenidos: '', actividades: '',
-      recursos: [], otroOn: false, recursoOtro: '', metodologia: '', estado: '', pendiente: '', evidencias: [], guardadas: [] };
+      recursos: [], otroOn: false, recursoOtro: '', metodologia: '', estado: '', pendiente: '', evidencias: [], guardadas: [], solicitud: '' };
   }
   function conContenido(f) { return !!(f && (f.curso || f.tema || f.contenidos || f.actividades || (f.evidencias || []).length)); }
   function desdeDetalle(d) {
@@ -497,6 +718,7 @@ window.HU_MODULO = function (EA) {
     f.tema = d.tema; f.contenidos = d.contenidos; f.actividades = d.actividades; f.recursos = d.recursos.slice();
     f.otroOn = !!d.recursoOtro; f.recursoOtro = d.recursoOtro; f.metodologia = d.metodologia; f.estado = d.estado; f.pendiente = d.pendiente;
     f.evidencias = d.evidencias.slice(); f.guardadas = d.evidencias.filter(function (e) { return e.t === 'a'; }).map(function (e) { return e.id; });
+    f.solicitud = d.solicitud || '';
     return f;
   }
   var borradorT;
@@ -510,10 +732,10 @@ window.HU_MODULO = function (EA) {
     box.querySelector('ul').innerHTML = H.errores.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('');
   }
   function guardarBorrador(f) {
-    f = f || H.form; if (!f) return;
-    if (f === H.form) actualizarErrores();
+    f = f || formActivo(); if (!f) return;
+    if (f === H.form) actualizarErrores(); else if (f === R.form) actualizarErroresRe();
     clearTimeout(borradorT);
-    borradorT = setTimeout(function () { EA.store(claveBorrador(f.id), f); }, 300);
+    borradorT = setTimeout(function () { EA.store(claveDe(f), f); }, 300);
   }
   function prepararForm() {
     var clave = S.view + ':' + (S.id || '');
@@ -556,7 +778,7 @@ window.HU_MODULO = function (EA) {
     return '<div class="callout"><span class="strip amber">Quedó pendiente</span><p><b>' + esc(EA.fFechaLarga(prev.fecha)) + ' · ' + esc(prev.tema) + '.</b> ' + esc(prev.pendiente) + '</p></div>';
   }
   function listaEvidencias() {
-    var f = H.form, out = '';
+    var f = formActivo(), out = '';
     f.evidencias.forEach(function (e, i) {
       out += '<div class="ev-item"><span class="tipo">' + (e.t === 'e' ? ICO.enlace : esc(String(e.x || huExtension(e.n) || 'arch').slice(0, 4))) + '</span>' +
         '<div class="mid"><span class="nom">' + esc(e.n) + '</span><span class="ev-sub">' + (e.t === 'e' ? esc(e.u) : fTam(e.s) + ' · listo') + '</span></div>' +
@@ -572,7 +794,7 @@ window.HU_MODULO = function (EA) {
     });
     return out;
   }
-  function subiendo(f) { return H.subidas.filter(function (s) { return s.form === (f || H.form) && s.estado === 'subiendo'; }).length; }
+  function subiendo(f) { return H.subidas.filter(function (s) { return s.form === (f || formActivo()) && s.estado === 'subiendo'; }).length; }
   // Mientras sube un archivo, la pantalla del iPad no se apaga (si se apaga, iPadOS corta la subida).
   var pantalla = null;
   function mantenerPantalla() {
@@ -628,6 +850,7 @@ window.HU_MODULO = function (EA) {
         return '<button type="button" data-hu="rec" data-v="' + esc(r) + '" aria-pressed="' + (f.recursos.indexOf(r) >= 0) + '">' + esc(r) + '</button>';
       }).join('') + '<button type="button" data-hu="otro" aria-pressed="' + f.otroOn + '">Otro</button></div>' +
       (f.otroOn ? '<label class="f"><span>¿Qué otro recurso?</span><input type="text" id="huRecOtro" maxlength="120" value="' + esc(f.recursoOtro) + '" placeholder="Ej.: material concreto"></label>' : '') + '</div>' +
+      solicitudHuella(f) +
       '<label class="f"><span>Metodología <em>· opcional</em></span><input type="text" id="huMet" maxlength="1000" value="' + esc(f.metodologia) + '" placeholder="Ej.: aprendizaje basado en proyectos, trabajo cooperativo"></label>' +
       '<fieldset class="fg"><legend class="lbl">Estado del contenido</legend><div class="estados">' +
       Object.keys(S.hu.estados).map(function (k) {
@@ -643,6 +866,14 @@ window.HU_MODULO = function (EA) {
     h += '<div class="dock"><div class="card"><span class="hint" id="huEstadoForm" aria-live="polite">' + esc(textoEstado()) + '</span>' +
       '<button class="btn" type="submit" id="huGuardar"' + (H.guardando ? ' disabled' : '') + '>' + (H.guardando ? 'Guardando…' : editar ? 'Guardar cambios' : 'Guardar huella') + '</button></div></div></form>';
     $('#view').innerHTML = h;
+  }
+  // Vínculo opcional con un recurso pedido: solo los propios ya listos o entregados que no estén en otra huella.
+  function solicitudHuella(f) {
+    if (!S.re) return '';
+    var l = S.re.mias.filter(function (s) { return s.id === f.solicitud || ((s.estado === 'lista' || s.estado === 'entregada') && (!s.huellaId || s.huellaId === f.id)); });
+    if (!l.length) return '';
+    return '<label class="f"><span>¿Usaste un recurso que pediste? <em>· opcional</em></span><select id="huSol">' + opcion('', 'No, esta clase no usó un recurso pedido', f.solicitud) +
+      l.map(function (s) { return opcion(s.id, pedidoTxt(s) + ' · ' + s.curso + ' · ' + EA.fFecha(s.fechaUso), f.solicitud); }).join('') + '</select></label>';
   }
   function validar(f) {
     var e = [];
@@ -669,13 +900,14 @@ window.HU_MODULO = function (EA) {
     var b = $('#huGuardar'); if (b) { b.disabled = true; b.textContent = 'Guardando…'; }
     var datos = { id: f.id, fecha: f.fecha, curso: f.curso, paralelos: f.paralelos, asignatura: f.otraAsig ? f.asigTexto.trim() : f.asignatura, asignaturaOtra: !!f.otraAsig,
       tema: f.tema, contenidos: f.contenidos, actividades: f.actividades, recursos: f.recursos, recursoOtro: f.otroOn ? f.recursoOtro : '',
-      metodologia: f.metodologia, estado: f.estado, pendiente: f.estado === 'completo' ? '' : f.pendiente, evidencias: f.evidencias };
+      metodologia: f.metodologia, estado: f.estado, pendiente: f.estado === 'completo' ? '' : f.pendiente, evidencias: f.evidencias, solicitud: f.solicitud || '' };
     EA.api('huGuardar', datos).then(function (r) {
       H.guardando = false;
       clearTimeout(borradorT); EA.store(claveBorrador(f.id));
       var i = S.hu.mias.map(function (x) { return x.id; }).indexOf(r.huella.id);
       if (i >= 0) S.hu.mias[i] = r.huella; else S.hu.mias.unshift(r.huella);
       S.hu.mias.sort(function (a, b) { var x = b.fecha + b.creado, y = a.fecha + a.creado; return x < y ? -1 : x > y ? 1 : 0; });
+      if (S.re) EA.api('reInicio').then(function (re) { S.re = re; R.det = {}; }).catch(function () { });
       H.det[r.huella.id] = r.detalle; H.form = null; H.formKey = ''; H.recien = r.huella.id; H.origen = 'huMias';
       EA.go('huellaVer', r.huella.id);
       EA.toast(f.id ? 'Cambios guardados.' : 'Huella guardada.');
@@ -710,14 +942,14 @@ window.HU_MODULO = function (EA) {
     if (p) p.textContent = s.pct + '%';
   }
   function adjuntar(files) {
-    var f = H.form, lim = S.hu.limites;
+    var f = formActivo(), lim = S.hu.limites, que = f._re ? 'solicitud' : 'huella';
     Array.prototype.forEach.call(files || [], function (file) {
       var x = huExtension(file.name);
       if (!HU_TIPOS[x]) { EA.toast('No se aceptan archivos .' + (x || 'sin extensión') + '. Expórtalo a PDF, video, audio o imagen, o comprímelo en .zip.', true); return; }
       if (!file.size) { EA.toast('«' + file.name + '» está vacío.', true); return; }
       if (file.size > lim.maxMb * 1048576) { EA.toast('«' + file.name + '» pesa ' + fTam(file.size) + '. El límite es ' + lim.maxMb + ' MB: compártelo como enlace.', true); return; }
       var usados = f.evidencias.filter(function (e) { return e.t === 'a'; }).length + H.subidas.filter(function (s) { return s.form === f; }).length;
-      if (usados >= lim.maxArchivos) { EA.toast('Puedes adjuntar hasta ' + lim.maxArchivos + ' archivos por huella.', true); return; }
+      if (usados >= lim.maxArchivos) { EA.toast('Puedes adjuntar hasta ' + lim.maxArchivos + ' archivos por ' + que + '.', true); return; }
       var s = { k: ++H.seq, file: file, n: file.name, s: file.size, x: x, pct: 0, estado: 'subiendo', form: f };
       H.subidas.push(s);
       H.cola = H.cola.then(function () { return subirUno(s); });
@@ -745,15 +977,15 @@ window.HU_MODULO = function (EA) {
       if (s.cancelado) { EA.api('evidenciaDescartar', { id: archivo.id }).catch(function () { }); return; }
       H.subidas = H.subidas.filter(function (x) { return x !== s; });
       s.form.evidencias.push(archivo);
-      EA.store(claveBorrador(s.form.id), s.form);
-      if (s.form === H.form) pintarEvs(); else mantenerPantalla();
+      EA.store(claveDe(s.form), s.form);
+      if (s.form === formActivo()) pintarEvs(); else mantenerPantalla();
     }).catch(function (e) {
       s.estado = 'error'; s.msg = e.message || 'No se pudo subir.';
-      if (s.form === H.form) pintarEvs(); else mantenerPantalla();
+      if (s.form === formActivo()) pintarEvs(); else mantenerPantalla();
     });
   }
   function quitarEvidencia(i) {
-    var f = H.form, e = f.evidencias[i];
+    var f = formActivo(), e = f.evidencias[i];
     if (!e) return;
     f.evidencias.splice(i, 1);
     // Un archivo subido en este borrador (y no guardado antes) se manda a la papelera.
@@ -799,7 +1031,8 @@ window.HU_MODULO = function (EA) {
     var recs = d.recursos.concat(d.recursoOtro ? [d.recursoOtro] : []);
     h += '<div class="grid2"><section class="card stack" style="gap:10px"><span class="strip">Recursos y metodología</span>' +
       (recs.length ? '<div class="tags">' + recs.map(function (r) { return '<span class="chip">' + esc(r) + '</span>'; }).join('') + '</div>' : '<p class="muted small">Sin recursos registrados.</p>') +
-      (d.metodologia ? '<p class="texto"><b>Metodología:</b> ' + esc(d.metodologia) + '</p>' : '') + '</section>' +
+      (d.metodologia ? '<p class="texto"><b>Metodología:</b> ' + esc(d.metodologia) + '</p>' : '') +
+      (d.solicitud && d.propia && S.re ? '<div><button class="btn ghost sm" type="button" data-go="solicitudVer" data-id="' + esc(d.solicitud) + '">Ver el recurso que pediste</button></div>' : '') + '</section>' +
       '<section class="card stack" style="gap:10px"><span class="strip pink">Estado del contenido</span><div class="row">' + chipEstado(d.estado) + '<b>' + esc(S.hu.estados[d.estado] || d.estado) + '</b></div>' +
       (d.pendiente ? '<p class="texto"><b>Quedó pendiente:</b> ' + esc(d.pendiente) + '</p>' : '') + '</section></div>';
     h += '<section class="card stack" style="gap:10px"><span class="strip sky">Evidencia de la clase</span>' +
@@ -956,14 +1189,324 @@ window.HU_MODULO = function (EA) {
       .then(function () { var b2 = document.querySelector('[data-hu="regCsv"]'); if (b2) { b2.disabled = false; b2.textContent = 'Exportar a Excel (CSV)'; } });
   }
 
+  /* ---------------- Pedir un recurso ---------------- */
+  var RE_CORTO = { recibida: 'Recibida', proceso: 'En proceso', lista: 'Lista', entregada: 'Entregada', cancelada: 'Cancelada' };
+  function chipRe(e) { return '<span class="chip re-' + esc(e) + '"><span class="dot"></span>' + esc(RE_CORTO[e] || e) + '</span>'; }
+  function nombreHerr(h) { return h === 'Por recomendar' ? 'Herramienta por recomendar' : h; }
+  function pedidoTxt(s) { return (S.re.tipos[s.tipo] || s.tipo) + ' · ' + nombreHerr(s.herramienta); }
+  function minimoPlazo() { return reSumarHabiles(EA.hoy(), S.re.plazo); }
+  function cuandoUso(s) {
+    var hoy = EA.hoy();
+    if (s.fechaUso < hoy) return 'Ya pasó';
+    if (s.fechaUso === hoy) return 'Hoy';
+    var n = reDiasHabiles(hoy, s.fechaUso);
+    return n <= 1 ? 'Mañana o el próximo día hábil' : 'En ' + n + ' días hábiles';
+  }
+  function abiertas(l) { return l.filter(function (s) { return s.estado === 'recibida' || s.estado === 'proceso'; }); }
+  function tabsRe(actual) {
+    var items = [['recurso', 'Nueva solicitud', null, 'Nueva'], ['reMias', 'Mis solicitudes', S.re.mias.length, 'Mías']];
+    return '<nav class="tabs" aria-label="Pedir un recurso">' + items.map(function (t) {
+      return '<button type="button" data-go="' + t[0] + '"' + (t[0] === actual ? ' aria-current="page"' : '') + ' aria-label="' + t[1] + '"><span class="largo">' + t[1] + '</span><span class="corto" aria-hidden="true">' + t[3] + '</span>' +
+        (t[2] != null ? ' <span class="n">' + t[2] + '</span>' : '') + '</button>';
+    }).join('') + '</nav>';
+  }
+  function nuevoRe() {
+    return { _re: 1, tipo: '', herramienta: '', fechaUso: '', curso: '', paralelos: [], asignatura: '', otraAsig: false, asigTexto: '', periodos: 1,
+      reserva: '', logro: '', actividad: '', evidenciaLogro: '', evidencias: [], guardadas: [] };
+  }
+  function prepararRe() {
+    if (R.formKey === 'recurso' && R.form) return;
+    var g = EA.load(claveDe({ _re: 1 }));
+    R.recuperado = !!(g && g._re && (g.tipo || g.logro || g.actividad || (g.evidencias || []).length));
+    R.form = R.recuperado ? g : nuevoRe();
+    R.errores = []; R.guardando = false; R.formKey = 'recurso';
+  }
+  function radios(nombre, opciones, valor, clase) {
+    return '<div class="' + clase + '">' + opciones.map(function (o) {
+      return '<label class="' + (valor === o[0] ? 'on' : '') + '"><input type="radio" name="' + nombre + '" value="' + esc(o[0]) + '"' + (valor === o[0] ? ' checked' : '') + '>' +
+        '<span><b>' + esc(o[1]) + '</b>' + (o[2] ? '<small>' + esc(o[2]) + '</small>' : '') + '</span></label>';
+    }).join('') + '</div>';
+  }
+  function catalogoPlantillas(herr) {
+    var l = S.re.plantillas.filter(function (p) { return !herr || herr === 'Por recomendar' || p.herramienta === herr; });
+    if (!l.length) {
+      return '<div class="card cream stack" style="gap:8px"><b>Todavía no hay plantillas' + (herr && herr !== 'Por recomendar' ? ' para ' + esc(herr) : '') + ' en el catálogo.</b>' +
+        '<p class="small" style="margin:0">Pide un recurso a medida: el Departamento lo prepara para tu clase.</p><div><button class="btn sm" type="button" data-hu="reAMedida">Pedir un recurso a medida</button></div></div>';
+    }
+    return '<div class="plantillas">' + l.map(function (p) {
+      return '<a class="plantilla" href="' + esc(p.enlace) + '" target="_blank" rel="noopener noreferrer"><span class="chip">' + esc(p.herramienta) + '</span><b>' + esc(p.titulo) + '</b>' +
+        (p.descripcion ? '<span class="small muted">' + esc(p.descripcion) + '</span>' : '') + '<span class="abrir">Abrir plantilla</span></a>';
+    }).join('') + '</div>';
+  }
+  function vRecurso() {
+    if (!S.re) return EA.go('inicio');
+    prepararRe();
+    var f = R.form, re = S.re, c = cat(), sede = sedeDe(f.curso) || U().sede, asigs = c.asignaturas[sede] || [], lim = S.hu.limites;
+    if (f.asignatura && asigs.indexOf(f.asignatura) < 0 && !f.otraAsig) { f.otraAsig = true; f.asigTexto = f.asignatura; f.asignatura = ''; }
+    var h = EA.tb('Pedir un recurso', 'Solicitud de recurso', '', 'Pídelo con al menos ' + re.plazo + ' días hábiles de anticipación. Lo atiende el Departamento de Experiencias de Aprendizaje.');
+    h += tabsRe('recurso');
+    if (R.recuperado) h += '<div class="card cream row" style="justify-content:space-between"><span><b>Recuperamos lo que estabas escribiendo</b> en este dispositivo.</span><button class="btn ghost sm" type="button" data-hu="descartarBorrador">Empezar de cero</button></div>';
+    h += '<form id="reForm" class="stack" novalidate>';
+    if (R.errores.length) h += '<div class="err" id="reErr" tabindex="-1" role="alert"><b>Revisa esto antes de enviar:</b><ul>' + R.errores.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul></div>';
+    // 1. ¿Qué necesitas?
+    h += '<section class="card stack sec"><div class="sec-h"><h2><span class="num n1">1</span>¿Qué necesitas?</h2></div>' +
+      '<fieldset class="fg"><legend class="lbl">Tipo de apoyo</legend>' + radios('reTipo', Object.keys(re.tipos).map(function (k) { return [k, re.tipos[k], re.tiposDesc[k]]; }), f.tipo, 'tipos') + '</fieldset>' +
+      '<fieldset class="fg"><legend class="lbl">Herramienta</legend>' + radios('reHerr', re.herramientas.map(function (x) { return [x, x === 'Por recomendar' ? 'No sé cuál conviene: recomiéndenme' : x]; }), f.herramienta, 'pills') + '</fieldset></section>';
+    if (f.tipo === 'plantilla') {
+      h += '<section class="card stack sec"><div class="sec-h"><h2><span class="num n2">2</span>Catálogo de plantillas</h2></div>' + catalogoPlantillas(f.herramienta) + '</section></form>';
+      $('#view').innerHTML = h; return;
+    }
+    // 2. La clase
+    var minimo = minimoPlazo(), fuera = f.fechaUso && f.fechaUso < minimo;
+    h += '<section class="card stack sec"><div class="sec-h"><h2><span class="num n2">2</span>La clase</h2>' +
+      (S.hu.mias.length ? '<button class="btn ghost sm" type="button" data-hu="repetir">Repetir el último curso</button>' : '') + '</div>' +
+      '<div class="form"><label class="f"><span>Fecha en que lo usarás</span><input type="date" id="reFecha" min="' + EA.hoy() + '" value="' + esc(f.fechaUso) + '"></label>' +
+      '<label class="f"><span>Curso</span><select id="huCurso">' + opcionesCurso(f.curso) + '</select></label>' +
+      '<label class="f"><span>Duración</span><select id="rePer">' + [1, 2, 3, 4, 5, 6].map(function (n) { return opcion(n, n + (n === 1 ? ' periodo' : ' periodos') + ' de 40 min', f.periodos); }).join('') + '</select></label></div>' +
+      '<p class="hint" id="rePlazo" style="margin:0">' + (fuera ? '' : 'Con el plazo de ' + re.plazo + ' días hábiles, puedes pedirlo para el ' + esc(EA.fFechaLarga(minimo)) + ' o después.') + '</p>' +
+      (fuera ? '<div class="err" style="margin:0"><b>Fuera de plazo.</b> Lo pides con menos de ' + re.plazo + ' días hábiles: el Departamento hará lo posible, pero no se garantiza para esa fecha. La solicitud queda marcada como fuera de plazo.</div>' : '') +
+      '<div class="fg" role="group" aria-labelledby="reParL"><span class="lbl" id="reParL">Paralelo <em>· puedes marcar varios</em></span><div class="seg">' +
+      (f.curso ? (c.paralelos[sede] || []).map(function (p) { return '<button type="button" data-hu="par" data-v="' + esc(p) + '" aria-pressed="' + (f.paralelos.indexOf(p) >= 0) + '">' + esc(p) + '</button>'; }).join('') : '<span class="hint">Primero elige el curso.</span>') + '</div></div>' +
+      '<div class="form"><label class="f"><span>Asignatura</span><select id="huAsig"><option value="">Elige la asignatura</option>' +
+      asigs.map(function (a) { return opcion(a, a, f.otraAsig ? '' : f.asignatura); }).join('') + '<option value="__otra"' + (f.otraAsig ? ' selected' : '') + '>Otra (escríbela)</option></select></label>' +
+      (f.otraAsig ? '<label class="f"><span>¿Cuál asignatura?</span><input type="text" id="huAsigOtra" maxlength="80" value="' + esc(f.asigTexto) + '"></label>' : '') + '</div>';
+    if (re.conReserva.indexOf(f.herramienta) >= 0) {
+      h += '<fieldset class="fg"><legend class="lbl">¿Ya reservaste el espacio?</legend>' + radios('reReserva', [['sí', 'Sí, ya lo reservé'], ['no', 'Todavía no']], f.reserva, 'pills') + '</fieldset>' +
+        '<div class="callout"><span class="strip amber">Recuerda hacer la reserva del espacio</span><p>' + esc(f.herramienta) + ' se reserva en el sistema de reservas del colegio. Esta solicitud no reserva el espacio.</p>' +
+        (re.reservasUrl ? '<p><a class="btn sm" href="' + esc(re.reservasUrl) + '" target="_blank" rel="noopener noreferrer">Ir al sistema de reservas</a></p>' : '') + '</div>';
+    }
+    h += '</section>';
+    // 3. El propósito
+    h += '<section class="card stack sec"><div class="sec-h"><h2><span class="num n3">3</span>El propósito</h2></div>' +
+      '<label class="f"><span>¿Qué deben lograr tus estudiantes?</span><textarea id="reLogro" maxlength="1000" placeholder="Ej.: Explicar el recorrido de los alimentos por el sistema digestivo.">' + esc(f.logro) + '</textarea></label>' +
+      '<label class="f"><span>¿Qué harán tus estudiantes con el recurso?</span><textarea id="reAct" maxlength="1500" placeholder="Ej.: Recorren el sistema digestivo en el aula inmersiva y narran cada etapa en equipos.">' + esc(f.actividad) + '</textarea></label>' +
+      '<label class="f"><span>¿Cómo sabrás que lo lograron? <em>· opcional</em></span><textarea id="reEvid" maxlength="1000" placeholder="Ej.: Cada equipo entrega un mapa narrado en Keynote.">' + esc(f.evidenciaLogro) + '</textarea></label>' +
+      '<div class="fg"><span class="lbl">Material de referencia</span><p class="hint" style="margin:0">Obligatorio: tu planificación, un ejemplo, un boceto o un enlace. Nos muestra exactamente qué buscas.</p>' +
+      '<label class="drop" id="huDrop"><input type="file" id="huArchivos" multiple accept="' + ACCEPT + '">' + ICO.subir +
+      '<b>Adjuntar material</b><span>Documento, imagen, video, audio, presentación o página web</span>' +
+      '<span class="hint">Hasta ' + lim.maxArchivos + ' archivos de ' + lim.maxMb + ' MB cada uno.</span></label>' +
+      '<div class="enlace-row"><label class="f"><span>O agrega un enlace</span><input type="url" id="huUrl" inputmode="url" placeholder="https://…" autocomplete="off"></label><button class="btn ghost" type="button" data-hu="agregarEnlace">Agregar</button></div>' +
+      '<div class="evs" id="huEvs">' + listaEvidencias() + '</div></div></section>';
+    h += '<div class="dock"><div class="card"><span class="hint" id="huEstadoForm" aria-live="polite">' + esc(textoEstado()) + '</span>' +
+      '<button class="btn" type="submit" id="reEnviar"' + (R.guardando ? ' disabled' : '') + '>' + (R.guardando ? 'Enviando…' : 'Enviar solicitud') + '</button></div></div></form>';
+    $('#view').innerHTML = h;
+  }
+  function validarRe(f) {
+    var e = [], re = S.re;
+    if (!f.tipo) e.push('Elige el tipo de apoyo.');
+    if (!f.herramienta) e.push('Elige la herramienta.');
+    if (!f.fechaUso) e.push('Elige la fecha en que usarás el recurso.'); else if (f.fechaUso < EA.hoy()) e.push('La fecha de uso no puede ser pasada.');
+    if (!f.curso) e.push('Elige el curso.');
+    if (f.curso && !f.paralelos.length) e.push('Marca al menos un paralelo.');
+    if (f.otraAsig ? f.asigTexto.trim().length < 2 : !f.asignatura) e.push('Elige la asignatura.');
+    if (re.conReserva.indexOf(f.herramienta) >= 0 && !f.reserva) e.push('Indica si ya reservaste el espacio.');
+    if (f.logro.trim().length < 3) e.push('Escribe qué deben lograr tus estudiantes.');
+    if (f.actividad.trim().length < 3) e.push('Escribe qué harán tus estudiantes con el recurso.');
+    if (!f.evidencias.length) e.push('Adjunta el material de referencia (archivo o enlace).');
+    return e;
+  }
+  function actualizarErroresRe() {
+    if (!R.errores.length || !R.form) return;
+    R.errores = validarRe(R.form);
+    var box = $('#reErr');
+    if (!box) return;
+    if (!R.errores.length) { box.remove(); return; }
+    box.querySelector('ul').innerHTML = R.errores.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('');
+  }
+  function enviarRe() {
+    var f = R.form;
+    if (!f || R.guardando) return;
+    if (subiendo(f)) { EA.toast('Espera a que terminen de subir los archivos.', true); return; }
+    if (H.subidas.some(function (s) { return s.form === f && s.estado === 'error'; })) { EA.toast('Un archivo no se subió: reintenta o quítalo antes de enviar.', true); return; }
+    R.errores = validarRe(f);
+    if (R.errores.length) { vRecurso(); var box = $('#reErr'); if (box) { box.scrollIntoView({ block: 'center' }); box.focus({ preventScroll: true }); } return; }
+    R.guardando = true;
+    var b = $('#reEnviar'); if (b) { b.disabled = true; b.textContent = 'Enviando…'; }
+    EA.api('reGuardar', { tipo: f.tipo, herramienta: f.herramienta, fechaUso: f.fechaUso, curso: f.curso, paralelos: f.paralelos,
+      asignatura: f.otraAsig ? f.asigTexto.trim() : f.asignatura, asignaturaOtra: !!f.otraAsig, periodos: Number(f.periodos) || 1,
+      reserva: S.re.conReserva.indexOf(f.herramienta) >= 0 ? f.reserva : '', logro: f.logro, actividad: f.actividad, evidenciaLogro: f.evidenciaLogro, material: f.evidencias
+    }).then(function (r) {
+      R.guardando = false; clearTimeout(borradorT); EA.store(claveDe(f));
+      S.re.mias.unshift(r.solicitud); R.det[r.solicitud.id] = r.solicitud;
+      R.form = null; R.formKey = ''; R.origen = 'reMias'; R.recien = r.solicitud.id;
+      EA.go('solicitudVer', r.solicitud.id); EA.toast('Solicitud enviada al Departamento.');
+    }).catch(function (e) {
+      R.guardando = false; R.errores = [e.message];
+      if (S.view === 'recurso') { vRecurso(); var box = $('#reErr'); if (box) box.scrollIntoView({ block: 'center' }); } else EA.toast(e.message, true);
+    });
+  }
+  function itemSolicitud(s, conDocente) {
+    return '<button class="hitem" type="button" data-go="solicitudVer" data-id="' + esc(s.id) + '">' +
+      '<div class="when">' + EA.fFecha(s.fechaUso) + '<span>' + esc(cuandoUso(s)) + '</span></div>' +
+      '<div class="main"><b>' + esc(pedidoTxt(s)) + '</b><span>' + esc(s.curso + ' ' + s.paralelos.join(', ') + ' · ' + s.asignatura + (conDocente ? ' · ' + s.docente : '')) + '</span></div>' +
+      '<div class="side">' + chipRe(s.estado) + (s.fueraPlazo ? '<span class="chip fuera">Fuera de plazo</span>' : '') + '</div></button>';
+  }
+  function vReMias(sinRecargar) {
+    if (!sinRecargar) EA.api('reInicio').then(function (re) { var antes = JSON.stringify(S.re.mias); S.re = re; if (S.view === 'reMias' && JSON.stringify(re.mias) !== antes) vReMias(true); }).catch(function () { });
+    var l = S.re.mias, listas = l.filter(function (s) { return s.estado === 'lista'; });
+    var h = EA.tb('Pedir un recurso', 'Mis solicitudes', '<button class="btn" type="button" data-go="recurso">Nueva solicitud</button>', '');
+    h += tabsRe('reMias');
+    if (listas.length) h += '<div class="card teal"><b>' + listas.length + (listas.length === 1 ? ' recurso listo' : ' recursos listos') + '.</b> Ábrelo y confirma que lo recibiste.</div>';
+    if (!l.length) h += '<div class="card empty-state"><span class="strip blue">Sin solicitudes</span><h2>Todavía no pides ningún recurso</h2><p class="muted">Pide una plantilla, un recurso a medida, acompañamiento o una capacitación corta.</p><p><button class="btn" type="button" data-go="recurso">Pedir un recurso</button></p></div>';
+    else h += '<div class="list">' + l.map(function (s) { return itemSolicitud(s, false); }).join('') + '</div>';
+    $('#view').innerHTML = h;
+  }
+  function pasosRe(s) {
+    if (s.estado === 'cancelada') return '<div class="steps"><span class="step done"><i>✓</i>Recibida · ' + esc(EA.fFecha(s.fechas.recibida)) + '</span><span class="step now"><i>×</i>Cancelada · ' + esc(EA.fFecha(s.fechas.cancelada)) + '</span></div>';
+    var orden = ['recibida', 'proceso', 'lista', 'entregada'], i = orden.indexOf(s.estado);
+    return '<div class="steps">' + orden.map(function (k, j) {
+      var f = s.fechas[k];
+      return '<span class="step ' + (j < i || (j === i && k === 'entregada') ? 'done' : j === i ? 'now' : '') + '"><i>' + (j <= i && f ? '✓' : j + 1) + '</i>' + RE_CORTO[k] + (f ? ' · ' + esc(EA.fFecha(f)) : '') + '</span>';
+    }).join('') + '</div>';
+  }
+  function matVer(s, e) {
+    if (e.t === 'e') return '<a class="ev-item ev-link" href="' + esc(e.u) + '" target="_blank" rel="noopener noreferrer"><span class="tipo">' + ICO.enlace + '</span><div class="mid"><span class="nom">' + esc(e.n) + '</span><span class="ev-sub">' + esc(e.u) + '</span></div><span class="abrir">Abrir</span></a>';
+    return '<button type="button" class="ev-item ev-link" data-hu="abrirMat" data-a="' + esc(e.id) + '"><span class="tipo">' + esc(String(e.x || '').slice(0, 4)) + '</span><div class="mid"><span class="nom">' + esc(e.n) + '</span><span class="ev-sub">' + fTam(e.s) + ' · se abre en Google Drive</span></div><span class="abrir">Abrir</span></button>';
+  }
+  function abrirMaterial(boton) {
+    if (EA.DEMO) { EA.toast('En el portal publicado, el archivo se abre en Google Drive con tu cuenta.'); return; }
+    var w = null;
+    try { w = window.open('', '_blank'); if (w) w.opener = null; } catch (e) { w = null; }
+    boton.disabled = true;
+    EA.api('materialAbrir', { solicitud: S.id, archivo: boton.dataset.a }).then(function (r) {
+      boton.disabled = false;
+      if (w && !w.closed) { w.location.href = r.url; return; }
+      var a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'btn sm'; a.textContent = 'Abrir ' + (r.nombre || 'archivo');
+      boton.replaceWith(a); EA.toast('Toca «Abrir» para ver el archivo.');
+    }).catch(function (e) { boton.disabled = false; if (w) w.close(); EA.toast(e.message, true); });
+  }
+  function vSolicitud() {
+    var id = S.id;
+    R.confirmar = '';
+    // Se pinta lo que ya se tiene y se trae la versión al día (el Departamento pudo cambiar el estado).
+    var previa = R.det[id] || S.re.mias.filter(function (x) { return x.id === id; })[0];
+    if (previa) { R.det[id] = previa; pintarSolicitud(); } else EA.loading('Abriendo la solicitud…');
+    EA.api('reDetalle', { id: id }).then(function (d) {
+      var cambio = JSON.stringify(d) !== JSON.stringify(R.det[id]);
+      if (cambio) actualizarSolicitud(d);
+    }).catch(function (e) { if (!previa && S.view === 'solicitudVer' && S.id === id) $('#view').innerHTML = '<div class="err">' + esc(e.message) + '</div><p><button class="btn ghost" type="button" data-go="' + esc(R.origen) + '">Volver</button></p>'; });
+  }
+  function pintarSolicitud() {
+    var s = R.det[S.id], depto = S.re.depto, abierta = s.estado === 'recibida' || s.estado === 'proceso';
+    var h = EA.tb('Solicitud de recurso · ' + esc(RE_CORTO[s.estado] || s.estado), esc(pedidoTxt(s)), '<button class="btn ghost" type="button" data-go="' + esc(R.origen || 'reMias') + '">Volver</button>',
+      esc(s.curso + ' ' + s.paralelos.join(', ') + ' · ' + s.asignatura + ' · para el ' + EA.fFechaLarga(s.fechaUso)) + (s.propia ? '' : ' · ' + esc(s.docente)));
+    if (R.recien === s.id) { h += '<div class="card teal"><b>Solicitud enviada.</b> El Departamento la verá en su bandeja. Aquí sigues cada paso con su fecha.</div>'; R.recien = ''; }
+    h += '<div class="row" style="justify-content:space-between">' + pasosRe(s) + '<div class="tags">' + (s.fueraPlazo ? '<span class="chip fuera">Fuera de plazo</span>' : '') +
+      (s.huellaId ? '<span class="chip hu-completo">Usado en una huella</span>' : '') + '</div></div>';
+    if (s.estado === 'lista' || s.estado === 'entregada' || (s.estado === 'cancelada' && s.respuestaNota)) {
+      h += '<section class="card ' + (s.estado === 'cancelada' ? 'coral' : 'teal') + ' stack" style="gap:10px"><span class="strip">' + (s.estado === 'cancelada' ? 'Motivo' : 'Respuesta del Departamento') + '</span>' +
+        (s.respuestaEnlace ? '<div><a class="btn" href="' + esc(s.respuestaEnlace) + '" target="_blank" rel="noopener noreferrer">Abrir el recurso</a></div>' : '') +
+        (s.respuestaNota ? '<p class="texto">' + esc(s.respuestaNota) + '</p>' : '') +
+        (s.propia && s.estado === 'lista' ? '<div><button class="btn" type="button" data-hu="reRecibido">Confirmar que lo recibí</button></div>' : '') + '</section>';
+    }
+    if (depto && abierta) {
+      h += '<section class="card cream stack" style="gap:10px"><span class="strip amber">Atender (Departamento)</span>' +
+        (s.estado === 'recibida' ? '<div><button class="btn ghost" type="button" data-hu="reProceso">Marcar «En proceso»</button></div>' : '') +
+        '<form id="reListaForm" class="stack" style="gap:10px" novalidate><div class="form"><label class="f"><span>Enlace del recurso <em>· si aplica</em></span><input type="url" id="reRespEnlace" placeholder="https://…"></label></div>' +
+        '<label class="f"><span>Nota para el docente <em>· obligatoria si no hay enlace (por ejemplo, día y hora del acompañamiento)</em></span><textarea id="reRespNota" maxlength="1500"></textarea></label>' +
+        '<div class="row"><button class="btn" type="submit">Marcar como lista y avisar al docente</button><button class="btn ghost" type="button" data-hu="reNoProcede">No procede</button></div></form></section>';
+    }
+    h += '<div class="grid2"><section class="card stack" style="gap:8px"><span class="strip blue">La clase</span>' +
+      '<p class="texto"><b>Fecha de uso:</b> ' + esc(EA.fFechaLarga(s.fechaUso)) + ' (' + esc(cuandoUso(s).toLowerCase()) + ')<br><b>Duración:</b> ' + s.periodos + (s.periodos === 1 ? ' periodo' : ' periodos') + ' de 40 min<br><b>Curso:</b> ' + esc(s.curso + ' ' + s.paralelos.join(', ') + ' · ' + s.sede) + '<br><b>Asignatura:</b> ' + esc(s.asignatura) +
+      (s.reserva !== 'no aplica' ? '<br><b>Espacio reservado:</b> ' + (s.reserva === 'sí' ? 'sí' : 'todavía no') : '') + '</p></section>' +
+      '<section class="card stack" style="gap:8px"><span class="strip green">El propósito</span><p class="texto"><b>Deben lograr:</b> ' + esc(s.logro) + '</p><p class="texto"><b>Harán con el recurso:</b> ' + esc(s.actividad) + '</p>' +
+      (s.evidenciaLogro ? '<p class="texto"><b>Sabrán que lo lograron por:</b> ' + esc(s.evidenciaLogro) + '</p>' : '') + '</section></div>';
+    h += '<section class="card stack" style="gap:10px"><span class="strip sky">Material de referencia</span><div class="evs">' + s.material.map(function (e) { return matVer(s, e); }).join('') + '</div></section>';
+    h += '<p class="small muted">Pedida por ' + esc(s.docente) + ' (' + esc(s.email) + ') el ' + esc(EA.fFechaLarga(s.creado)) + (s.atendidoPor ? ' · atiende ' + esc(s.atendidoPor) : '') + '.</p>';
+    if (s.propia && s.estado === 'recibida') {
+      h += R.confirmar === 'cancelar' ? '<div class="confirm">¿Cancelar esta solicitud?<button class="btn coral sm" type="button" data-hu="reCancelarSi">Sí, cancelar</button><button class="btn ghost sm" type="button" data-hu="reNo">No</button></div>'
+        : '<div><button class="btn ghost sm" type="button" data-hu="reCancelar">Cancelar solicitud</button></div>';
+    }
+    $('#view').innerHTML = h;
+  }
+  function actualizarSolicitud(sol, msg) {
+    R.det[sol.id] = sol;
+    var i = S.re.mias.map(function (x) { return x.id; }).indexOf(sol.id);
+    if (i >= 0) S.re.mias[i] = sol;
+    if (R.bandeja) { var j = R.bandeja.solicitudes.map(function (x) { return x.id; }).indexOf(sol.id); if (j >= 0) R.bandeja.solicitudes[j] = sol; }
+    if (S.view === 'solicitudVer' && S.id === sol.id) pintarSolicitud();
+    if (msg) EA.toast(msg);
+  }
+  function accionRe(boton, accion, datos, msg) {
+    if (boton) boton.disabled = true;
+    var antes = R.det[datos.id] ? R.det[datos.id].estado : '';
+    return EA.api(accion, datos).then(function (r) {
+      var abierta = function (e) { return e === 'recibida' || e === 'proceso'; };
+      if (S.re.depto && abierta(antes) && !abierta(r.solicitud.estado)) S.re.porAtender = Math.max(0, S.re.porAtender - 1);
+      R.confirmar = '';
+      actualizarSolicitud(r.solicitud, msg);
+    }).catch(function (e) { if (boton) boton.disabled = false; EA.toast(e.message, true); });
+  }
+  /* ---- bandeja del Departamento ---- */
+  function vBandeja() {
+    if (!S.re || !S.re.depto) return EA.go('inicio');
+    var h = EA.tb('Departamento de Experiencias de Aprendizaje', 'Solicitudes de recursos', '<button class="btn ghost" type="button" data-hu="reRecargar">Actualizar</button>',
+      'Ordenadas por la fecha en que el docente usará el recurso.');
+    h += '<div id="reKpis"></div><nav class="tabs" aria-label="Bandeja">' + [['atender', 'Por atender'], ['listas', 'Listas'], ['cerradas', 'Cerradas'], ['resumen', 'Resumen por docente']].map(function (t) {
+      return '<button type="button" data-hu="reTab" data-v="' + t[0] + '"' + (R.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[1] + '</button>';
+    }).join('') + '</nav>';
+    h += '<div class="filters"><label class="f q"><span>Buscar</span><input type="search" id="reQ" value="' + esc(R.filtro.q) + '" placeholder="Docente, curso o asignatura" autocomplete="off"></label>' +
+      '<label class="f"><span>Herramienta</span><select id="reFHerr">' + opcion('', 'Todas', R.filtro.herr) + S.re.herramientas.map(function (x) { return opcion(x, nombreHerr(x), R.filtro.herr); }).join('') + '</select></label>' +
+      '<label class="f"><span>Sede</span><select id="reFSede">' + opcion('', 'Las dos', R.filtro.sede) + HU_SEDES.map(function (x) { return opcion(x, x, R.filtro.sede); }).join('') + '</select></label></div>';
+    h += '<div id="reLista"><div class="loading"><span class="spin"></span>Cargando solicitudes…</div></div>';
+    $('#view').innerHTML = h;
+    if (R.bandeja) pintarBandeja();
+    EA.api('reBandeja').then(function (b) { R.bandeja = b; S.re.porAtender = abiertas(b.solicitudes).length; if (S.view === 'reBandeja') pintarBandeja(); })
+      .catch(function (e) { if (S.view === 'reBandeja') { var l = $('#reLista'); if (l) l.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; } });
+  }
+  function pintarBandeja() {
+    var b = R.bandeja, f = R.filtro, q = f.q.trim().toLowerCase(), k = $('#reKpis'), l = $('#reLista');
+    if (!b || !k || !l) return;
+    var todas = b.solicitudes.filter(function (s) {
+      if (f.herr && s.herramienta !== f.herr) return false;
+      if (f.sede && s.sede !== f.sede) return false;
+      if (q && [s.docente, s.email, s.curso, s.asignatura, s.paralelos.join(' ')].join(' ').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    var ab = abiertas(todas), entregadas = todas.filter(function (s) { return s.estado === 'entregada'; });
+    k.innerHTML = '<div class="tiles"><div class="tile"><b>' + ab.length + '</b><span>Por atender</span></div>' +
+      '<div class="tile"><b>' + ab.filter(function (s) { return s.fueraPlazo; }).length + '</b><span>Por atender fuera de plazo</span></div>' +
+      '<div class="tile"><b>' + entregadas.length + '</b><span>Entregadas</span></div>' +
+      '<div class="tile"><b>' + todas.filter(function (s) { return s.huellaId; }).length + '</b><span>Usadas en una huella</span></div></div>';
+    if (R.tab === 'resumen') return pintarResumen(todas, l);
+    var lista = R.tab === 'atender' ? ab.slice().sort(function (x, y) { return x.fechaUso < y.fechaUso ? -1 : x.fechaUso > y.fechaUso ? 1 : 0; })
+      : todas.filter(function (s) { return R.tab === 'listas' ? s.estado === 'lista' : s.estado === 'entregada' || s.estado === 'cancelada'; });
+    if (!lista.length) { l.innerHTML = '<div class="empty"><b>' + (R.tab === 'atender' ? 'Nada por atender' : 'Sin solicitudes aquí') + '</b>' + (R.tab === 'atender' ? 'Las solicitudes nuevas aparecen aquí.' : 'Cambia de pestaña o quita los filtros.') + '</div>'; return; }
+    var hoy = EA.hoy();
+    l.innerHTML = '<div class="tbl-wrap regs-wrap"><table class="tbl regs hu-regs"><thead><tr><th>Uso</th><th>Docente</th><th>Pedido</th><th>Curso</th><th>Estado</th></tr></thead><tbody>' + lista.map(function (s) {
+      var urgente = (s.estado === 'recibida' || s.estado === 'proceso') && reDiasHabiles(hoy, s.fechaUso) <= 2;
+      return '<tr class="click' + (urgente ? ' flag' : '') + '" data-go="solicitudVer" data-id="' + esc(s.id) + '" tabindex="0">' +
+        '<td data-l="Uso" class="n">' + esc(EA.fFecha(s.fechaUso)) + '<span class="sub2">' + esc(cuandoUso(s)) + '</span></td>' +
+        '<td data-l="Docente" class="doc"><b>' + esc(s.docente) + '</b><span class="sub2">' + esc(s.email) + '</span></td>' +
+        '<td data-l="Pedido"><b>' + esc(S.re.tipos[s.tipo] || s.tipo) + '</b><span class="sub2">' + esc(nombreHerr(s.herramienta)) + '</span></td>' +
+        '<td data-l="Curso"><span class="chip">' + esc(s.sede) + '</span><span class="sub2">' + esc(s.curso + ' ' + s.paralelos.join(', ') + ' · ' + s.asignatura) + '</span></td>' +
+        '<td data-l="Estado"><div class="tags">' + chipRe(s.estado) + (s.fueraPlazo ? '<span class="chip fuera">Fuera de plazo</span>' : '') + '</div></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+  function pintarResumen(todas, l) {
+    var por = {};
+    todas.forEach(function (s) {
+      var d = por[s.email] = por[s.email] || { docente: s.docente, email: s.email, n: 0, entregadas: 0, usadas: 0, fuera: 0, herr: {} };
+      d.n++; if (s.estado === 'entregada') d.entregadas++; if (s.huellaId) d.usadas++; if (s.fueraPlazo) d.fuera++; d.herr[s.herramienta] = 1;
+    });
+    var filas = Object.keys(por).map(function (k) { return por[k]; }).sort(function (a, b) { return b.n - a.n || a.docente.localeCompare(b.docente, 'es'); });
+    if (!filas.length) { l.innerHTML = '<div class="empty"><b>Todavía no hay solicitudes</b>El resumen aparece con la primera.</div>'; return; }
+    l.innerHTML = '<div class="scroll"><table class="tbl"><thead><tr><th>Docente</th><th class="c">Solicitudes</th><th class="c">Entregadas</th><th class="c">Usadas en clase</th><th class="c">Fuera de plazo</th><th>Herramientas</th></tr></thead><tbody>' +
+      filas.map(function (d) {
+        return '<tr><td><b>' + esc(d.docente) + '</b><div class="small muted">' + esc(d.email) + '</div></td><td class="c n">' + d.n + '</td><td class="c n">' + d.entregadas + '</td><td class="c n">' + d.usadas + '</td><td class="c n">' + d.fuera + '</td>' +
+          '<td><div class="tags">' + Object.keys(d.herr).map(function (x) { return '<span class="chip">' + esc(nombreHerr(x)) + '</span>'; }).join('') + '</div></td></tr>';
+      }).join('') + '</tbody></table></div><p class="small muted">«Usadas en clase» cuenta las solicitudes que el docente vinculó al registrar la huella de esa clase.</p>';
+  }
+
   /* ---------------- eventos ---------------- */
   function alternar(lista, v) { var i = lista.indexOf(v); if (i >= 0) lista.splice(i, 1); else lista.push(v); }
   function click(ev) {
     var g = ev.target.closest('[data-go]');
     if (g && g.dataset.go === 'huellaVer' && S.view !== 'huellaVer') H.origen = S.view;
+    if (g && g.dataset.go === 'solicitudVer' && S.view !== 'solicitudVer') R.origen = S.view === 'huellaVer' ? 'reMias' : S.view;
     var a = ev.target.closest('[data-hu]');
     if (!a) return false;
-    var act = a.dataset.hu, v = a.dataset.v, f = H.form;
+    var act = a.dataset.hu, v = a.dataset.v, f = formActivo();
     ev.preventDefault();
     if (act === 'sede') {
       a.disabled = true;
@@ -979,15 +1522,16 @@ window.HU_MODULO = function (EA) {
       var sede = sedeDe(u.curso) || U().sede, lista = cat().asignaturas[sede] || [];
       f.curso = u.curso; f.paralelos = u.paralelos.slice();
       if (lista.indexOf(u.asignatura) >= 0) { f.asignatura = u.asignatura; f.otraAsig = false; f.asigTexto = ''; } else { f.asignatura = ''; f.otraAsig = true; f.asigTexto = u.asignatura; }
-      guardarBorrador(); vForm(); EA.toast('Copiamos curso, paralelos y asignatura de tu último registro.');
+      guardarBorrador(); repintar(); EA.toast('Copiamos curso, paralelos y asignatura de tu último registro.');
       return true;
     }
     if (act === 'descartarBorrador') {
       if (f) f.evidencias.forEach(function (e) { if (e.t === 'a' && (f.guardadas || []).indexOf(e.id) < 0) EA.api('evidenciaDescartar', { id: e.id }).catch(function () { }); });
       H.subidas.forEach(function (s) { if (s.form === f) s.cancelado = true; });
       H.subidas = H.subidas.filter(function (s) { return s.form !== f; });
-      clearTimeout(borradorT); EA.store(claveBorrador(f ? f.id : ''));
-      H.form = null; H.formKey = ''; vForm();
+      clearTimeout(borradorT); EA.store(claveDe(f));
+      if (S.view === 'recurso') { R.form = null; R.formKey = ''; } else { H.form = null; H.formKey = ''; }
+      repintar();
       return true;
     }
     if (act === 'agregarEnlace') {
@@ -1030,6 +1574,25 @@ window.HU_MODULO = function (EA) {
     if (act === 'regPer') { H.reg.per = v; vRegistros(); return true; }
     if (act === 'regLimpiar') { H.reg = { per: '30', sede: '', curso: '', asig: '', est: '', q: '' }; vRegistros(); return true; }
     if (act === 'regCsv') { csvRegistros(); return true; }
+    // Pedir un recurso
+    if (act === 'reAMedida') { R.form.tipo = 'medida'; guardarBorrador(R.form); vRecurso(); return true; }
+    if (act === 'abrirMat') { abrirMaterial(a); return true; }
+    if (act === 'reProceso') { accionRe(a, 'reEstado', { id: S.id, estado: 'proceso' }, 'Solicitud en proceso.'); return true; }
+    if (act === 'reNoProcede') {
+      var nota = ($('#reRespNota') || {}).value || '';
+      if (nota.trim().length < 3) { EA.toast('Escribe en la nota el motivo para el docente.', true); var n = $('#reRespNota'); if (n) n.focus(); return true; }
+      accionRe(a, 'reCancelar', { id: S.id, nota: nota }, 'Solicitud cerrada: el docente verá el motivo.'); return true;
+    }
+    if (act === 'reRecibido') { accionRe(a, 'reRecibido', { id: S.id }, 'Confirmado: recurso entregado.'); return true; }
+    if (act === 'reCancelar') { R.confirmar = 'cancelar'; pintarSolicitud(); return true; }
+    if (act === 'reNo') { R.confirmar = ''; pintarSolicitud(); return true; }
+    if (act === 'reCancelarSi') { accionRe(a, 'reCancelar', { id: S.id }, 'Solicitud cancelada.'); return true; }
+    if (act === 'reTab') {
+      R.tab = v;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-hu="reTab"]'), function (b) { if (b.dataset.v === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+      pintarBandeja(); return true;
+    }
+    if (act === 'reRecargar') { vBandeja(); return true; }
     return false;
   }
   // Actualiza solo el aviso de "Quedó pendiente" sin repintar el formulario (no se pierde el foco).
@@ -1041,18 +1604,22 @@ window.HU_MODULO = function (EA) {
     if (viejo) viejo.remove();
     if (nuevo) cont.querySelector('.sec-h').insertAdjacentHTML('afterend', nuevo);
   }
-  var CAMPOS = { huTema: 'tema', huCont: 'contenidos', huAct: 'actividades', huMet: 'metodologia', huPend: 'pendiente', huAsigOtra: 'asigTexto', huRecOtro: 'recursoOtro' };
+  var CAMPOS = { huTema: 'tema', huCont: 'contenidos', huAct: 'actividades', huMet: 'metodologia', huPend: 'pendiente', huAsigOtra: 'asigTexto', huRecOtro: 'recursoOtro',
+    reLogro: 'logro', reAct: 'actividad', reEvid: 'evidenciaLogro' };
+  var reQT;
   var regT;
   function input(ev) {
     var t = ev.target;
-    if (CAMPOS[t.id] && H.form) { H.form[CAMPOS[t.id]] = t.value; guardarBorrador(); if (t.id === 'huAsigOtra') refrescarPendiente(); return true; }
+    var fa = formActivo();
+    if (CAMPOS[t.id] && fa) { fa[CAMPOS[t.id]] = t.value; guardarBorrador(fa); if (t.id === 'huAsigOtra') refrescarPendiente(); return true; }
     if (t.id === 'huMq') { H.lista.q = t.value; pintarMias(); return true; }
     if (t.id === 'huCq') { H.cursosQ = t.value; pintarCursos(); return true; }
     if (t.id === 'huRq') { H.reg.q = t.value; clearTimeout(regT); regT = setTimeout(cargarRegistros, 350); return true; }
+    if (t.id === 'reQ') { R.filtro.q = t.value; clearTimeout(reQT); reQT = setTimeout(pintarBandeja, 200); return true; }
     return false;
   }
   function change(ev) {
-    var t = ev.target, f = H.form;
+    var t = ev.target, f = formActivo();
     if (t.id === 'huFecha' && f) { f.fecha = t.value; guardarBorrador(); return true; }
     if (t.id === 'huCurso' && f) {
       var antes = sedeDe(f.curso) || U().sede;
@@ -1060,11 +1627,11 @@ window.HU_MODULO = function (EA) {
       var ahora = sedeDe(f.curso) || U().sede, pars = cat().paralelos[ahora] || [];
       f.paralelos = f.paralelos.filter(function (p) { return pars.indexOf(p) >= 0; });
       if (antes !== ahora && f.asignatura && (cat().asignaturas[ahora] || []).indexOf(f.asignatura) < 0) f.asignatura = '';
-      guardarBorrador(); vForm(); return true;
+      guardarBorrador(); repintar(); return true;
     }
     if (t.id === 'huAsig' && f) {
-      if (t.value === '__otra') { f.otraAsig = true; f.asignatura = ''; guardarBorrador(); vForm(); var o = $('#huAsigOtra'); if (o) o.focus(); }
-      else { var eraOtra = f.otraAsig; f.otraAsig = false; f.asigTexto = ''; f.asignatura = t.value; guardarBorrador(); if (eraOtra) vForm(); else refrescarPendiente(); }
+      if (t.value === '__otra') { f.otraAsig = true; f.asignatura = ''; guardarBorrador(); repintar(); var o = $('#huAsigOtra'); if (o) o.focus(); }
+      else { var eraOtra = f.otraAsig; f.otraAsig = false; f.asigTexto = ''; f.asignatura = t.value; guardarBorrador(); if (eraOtra) repintar(); else refrescarPendiente(); }
       return true;
     }
     if (t.name === 'huEstado' && f) {
@@ -1074,13 +1641,38 @@ window.HU_MODULO = function (EA) {
       return true;
     }
     if (t.id === 'huArchivos') { adjuntar(t.files); t.value = ''; return true; }
+    if (t.id === 'huSol' && f) { f.solicitud = t.value; guardarBorrador(); return true; }
+    if ((t.name === 'reTipo' || t.name === 'reHerr' || t.name === 'reReserva') && f) {
+      if (t.name === 'reTipo') f.tipo = t.value;
+      if (t.name === 'reHerr') { f.herramienta = t.value; if (S.re.conReserva.indexOf(t.value) < 0) f.reserva = ''; }
+      if (t.name === 'reReserva') f.reserva = t.value;
+      guardarBorrador(); vRecurso();
+      var foco = document.querySelector('input[name="' + t.name + '"][value="' + t.value.replace(/"/g, '') + '"]'); if (foco) foco.focus();
+      return true;
+    }
+    if (t.id === 'reFecha' && f) { f.fechaUso = t.value; guardarBorrador(); vRecurso(); var rf = $('#reFecha'); if (rf) rf.focus(); return true; }
+    if (t.id === 'rePer' && f) { f.periodos = Number(t.value) || 1; guardarBorrador(); return true; }
+    if (t.id === 'reFHerr') { R.filtro.herr = t.value; pintarBandeja(); return true; }
+    if (t.id === 'reFSede') { R.filtro.sede = t.value; pintarBandeja(); return true; }
     if (t.id === 'huMcurso') { H.lista.curso = t.value; pintarMias(); return true; }
     if (t.id === 'huMest') { H.lista.est = t.value; pintarMias(); return true; }
     var rm = { huRsede: 'sede', huRcurso: 'curso', huRasig: 'asig', huRest: 'est' }[t.id];
     if (rm) { H.reg[rm] = t.value; if (rm === 'sede') { H.reg.curso = ''; H.reg.asig = ''; } vRegistros(); return true; }
     return false;
   }
-  function submit(ev) { if (ev.target.id !== 'huForm') return false; guardar(); return true; }
+  function submit(ev) {
+    var id = ev.target.id;
+    if (id === 'huForm') { guardar(); return true; }
+    if (id === 'reForm') { enviarRe(); return true; }
+    if (id === 'reListaForm') {
+      var enlace = $('#reRespEnlace').value.trim(), nota = $('#reRespNota').value.trim();
+      if (enlace && !/^https:\/\//i.test(enlace)) { EA.toast('El enlace del recurso debe empezar con https://', true); return true; }
+      if (!enlace && nota.length < 5) { EA.toast('Agrega el enlace del recurso o una nota (por ejemplo, el día y la hora del acompañamiento).', true); return true; }
+      accionRe(ev.target.querySelector('[type="submit"]'), 'reEstado', { id: S.id, estado: 'lista', enlace: enlace, nota: nota }, 'Marcada como lista: le avisamos al docente por correo.');
+      return true;
+    }
+    return false;
+  }
   // Arrastrar archivos sobre la zona de evidencia (computadora).
   document.addEventListener('dragover', function (ev) { var d = ev.target.closest && ev.target.closest('#huDrop'); if (d) { ev.preventDefault(); d.classList.add('sobre'); } });
   document.addEventListener('dragleave', function (ev) { var d = ev.target.closest && ev.target.closest('#huDrop'); if (d) d.classList.remove('sobre'); });
@@ -1091,18 +1683,26 @@ window.HU_MODULO = function (EA) {
     if (ev.dataTransfer && ev.dataTransfer.files) adjuntar(ev.dataTransfer.files);
   });
 
-  var PADRE = { huella: 'huella', huEditar: 'huella', huMias: 'huella', huCursos: 'huella', huellaVer: 'huella', huRegistros: 'huRegistros', inicio: 'inicio', sede: 'inicio' };
+  var PADRE = { huella: 'huella', huEditar: 'huella', huMias: 'huella', huCursos: 'huella', huellaVer: 'huella', huRegistros: 'huRegistros', inicio: 'inicio', sede: 'inicio',
+    recurso: 'recurso', reMias: 'recurso', solicitudVer: 'recurso', reBandeja: 'reBandeja' };
   return {
-    vistas: { sede: vSede, inicio: vInicio, huella: vForm, huEditar: vForm, huMias: vMias, huCursos: vCursos, huellaVer: vVer, huRegistros: vRegistros },
+    vistas: { sede: vSede, inicio: vInicio, huella: vForm, huEditar: vForm, huMias: vMias, huCursos: vCursos, huellaVer: vVer, huRegistros: vRegistros,
+      recurso: vRecurso, reMias: vReMias, solicitudVer: vSolicitud, reBandeja: vBandeja },
     nav: function () {
       if (!S.hu.usuario.sede) return [];   // primero la sede (paso 2)
       var items = [['inicio', 'Inicio'], ['huella', 'Huella de clases']];
+      if (S.re) items.push(['recurso', 'Pedir un recurso']);
       if (S.hu.permisos.registros) items.push(['huRegistros', 'Registros de huellas']);
+      if (S.re && S.re.depto) items.push(['reBandeja', 'Solicitudes']);
       if (S.boot) items.push(['|'], [S.boot.usuario.role === 'evaluador' ? 'visitas' : 'registros', 'Evaluación de clases']);
       return items;
     },
     sinSede: function () { return !S.hu.usuario.sede; },
-    padre: function (v) { return v === 'huellaVer' && H.origen === 'huRegistros' ? 'huRegistros' : PADRE[v]; },
+    padre: function (v) {
+      if (v === 'huellaVer' && H.origen === 'huRegistros') return 'huRegistros';
+      if (v === 'solicitudVer' && R.origen === 'reBandeja') return 'reBandeja';
+      return PADRE[v];
+    },
     click: click, input: input, change: change, submit: submit, reiniciar: reiniciar
   };
 };
@@ -1118,7 +1718,7 @@ window.HU_MODULO = function (EA) {
   var S = { boot: null, view: '', id: null, det: null, filtro: { q: '', estado: '', trim: 0 }, labFiltro: { trim: 0 }, resTrim: 0, res: null, resOrden: 'desc', resQ: '',
     tick: null, confirm: '', draft: null, rev: null, editDoc: null, form: {}, err: '', busy: false,
     v: '', cacheDet: {}, resCache: {}, watch: null, refrescando: false,
-    regF: { q: '', sub: '', niv: '', est: '', per: '' }, hu: null, huError: '' };
+    regF: { q: '', sub: '', niv: '', est: '', per: '' }, hu: null, re: null, huError: '' };
 
   /* ---------------- utilidades ---------------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -1214,6 +1814,7 @@ window.HU_MODULO = function (EA) {
   function store(k, v) { try { if (v === undefined) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
   function load(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
   function crit(id) { return REA.criterios[id]; }
+  function labClase(n) { return { 'Aula inmersiva': 'lab-inmersiva', 'Metaverso': 'lab-metaverso', 'Podcast': 'lab-podcast' }[n] || ''; }
   // CSV para Excel en español: separador ";" y BOM para que respete tildes y eñes.
   function csv(filas) {
     var celda = function (x) { x = x == null ? '' : String(x); return /[";\n\r]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
@@ -1353,7 +1954,7 @@ window.HU_MODULO = function (EA) {
     return '<button class="item" data-go="visita" data-id="' + esc(v.id) + '">' +
       '<div class="when">' + fFecha(v.fecha) + '<span>' + esc(v.hora) + '</span></div>' +
       '<div class="who-d"><b>' + esc(d.nombre) + '</b><span>' + esc([v.asignatura, v.curso, v.subnivel].filter(Boolean).join(' · ')) + '</span></div>' +
-      '<div class="what row"><span class="chip">' + esc(v.tipoVisita) + '</span><span class="chip lab-' + esc(v.espacio) + '">' + esc(v.espacio) + '</span></div>' +
+      '<div class="what row"><span class="chip">' + esc(v.tipoVisita) + '</span><span class="chip ' + labClase(v.espacio) + '">' + esc(v.espacio) + '</span></div>' +
       '<div class="st stack" style="gap:4px">' + chipEstado(v.estado) + '<span class="small muted">' + esc(progresoTxt(v)) + '</span></div>' +
       '<div class="res">' + res + '</div></button>';
   }
@@ -1721,14 +2322,14 @@ window.HU_MODULO = function (EA) {
     h += '<div class="row" style="justify-content:space-between"><p class="lead">Cada experiencia se puntúa con B1 Antes, B2 Durante y B3 Después. Solo cuenta si su ruta y sus evidencias están en el repositorio dentro de 5 días hábiles. ' +
       (t === 1 ? '<b>Trimestre 1: línea base de uso espontáneo.</b>' : exp ? '<b>Expectativa mínima: ' + exp + ' por docente.</b>' : '<b>Expectativa mínima sin fijar.</b>') + '</p>' + trimSelect('ltrim', t) + '</div>';
     if (!lista.length) {
-      h += '<div class="card empty-state"><span class="strip">Sin experiencias</span><h2>Aún no hay experiencias en el trimestre ' + t + '</h2><p class="muted">' + (ev ? 'Registra cada uso de Panorama, Órbita o Frecuencia con el enlace a su carpeta del repositorio.' : 'Aparecen aquí cuando los evaluadores las registran.') + '</p></div>';
+      h += '<div class="card empty-state"><span class="strip">Sin experiencias</span><h2>Aún no hay experiencias en el trimestre ' + t + '</h2><p class="muted">' + (ev ? 'Registra cada uso del aula inmersiva, el metaverso o el podcast con el enlace a su carpeta del repositorio.' : 'Aparecen aquí cuando los evaluadores las registran.') + '</p></div>';
     } else {
       h += '<div class="list">' + lista.map(function (e) {
         var d = docente(e.docente_id);
         var res = e.suma != null ? '<span class="cat c' + Math.min(4, Math.max(1, Math.round(e.suma / 3))) + '"><span class="tab-n">' + e.suma + '</span> / 12</span>' : (ev && pendienteMia(e) ? '<span class="chip me">Te toca</span>' : '');
         return '<button class="item" data-go="experiencia" data-id="' + esc(e.id) + '"><div class="when">' + fFecha(e.fecha) + '<span>' + esc(e.curso) + '</span></div>' +
           '<div class="who-d"><b>' + esc(d.nombre) + '</b><span>' + esc(e.tema || 'Sin tema') + '</span></div>' +
-          '<div class="what row"><span class="chip lab-' + esc(e.laboratorio) + '">' + esc(e.laboratorio) + '</span><span class="chip ' + (e.cuenta ? 'verificada' : '') + '">' + (e.cuenta ? 'Cuenta' : 'No cuenta') + '</span></div>' +
+          '<div class="what row"><span class="chip ' + labClase(e.laboratorio) + '">' + esc(e.laboratorio) + '</span><span class="chip ' + (e.cuenta ? 'verificada' : '') + '">' + (e.cuenta ? 'Cuenta' : 'No cuenta') + '</span></div>' +
           '<div class="st stack" style="gap:4px">' + chipEstado(e.estado) + '<span class="small muted">' + esc(progresoTxt(e)) + '</span></div><div class="res">' + res + '</div></button>';
       }).join('') + '</div>';
     }
@@ -1737,7 +2338,7 @@ window.HU_MODULO = function (EA) {
   function vNuevaExperiencia() {
     if (!esEval()) return go('laboratorios');
     var b = S.boot, f = S.form;
-    if (!f.inicE) { S.form = f = { inicE: 1, laboratorio: 'Panorama', trimestre: S.labFiltro.trim || b.config.trimestre, fecha: hoy(), cuenta: true }; }
+    if (!f.inicE) { S.form = f = { inicE: 1, laboratorio: 'Aula inmersiva', trimestre: S.labFiltro.trim || b.config.trimestre, fecha: hoy(), cuenta: true }; }
     var docs = b.docentes.filter(function (d) { return d.activo; });
     var h = tb('Laboratorios de Experiencia', 'Registrar experiencia', '<button class="btn ghost" data-go="laboratorios">Cancelar</button>');
     h += '<form class="card stack" id="fExp" novalidate>' + (S.err ? '<div class="err">' + esc(S.err) + '</div>' : '') +
@@ -1923,7 +2524,7 @@ window.HU_MODULO = function (EA) {
     h += '<div class="card cream"><span class="strip amber">Principios que no se negocian</span><ul class="prose">' + REA.principios.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></div>';
     REA.dimensiones.forEach(function (d, i) {
       h += '<section class="card stack" style="gap:14px"><div class="row"><span class="strip ' + ['', 'blue', 'pink', 'green'][i] + '">Dimensión ' + d.id + (d.parteB ? ' · Parte B, por trimestre' : ' · Parte A, cada visita') + '</span><h2 style="margin:0;font-size:21px">' + esc(d.nombre) + '</h2></div>';
-      if (d.parteB) h += '<p class="small" style="margin:0"><b>Condición de entrada:</b> una experiencia en Panorama, Órbita o Frecuencia cuenta solo si su ruta y sus evidencias están en el repositorio dentro de 5 días hábiles.</p>';
+      if (d.parteB) h += '<p class="small" style="margin:0"><b>Condición de entrada:</b> una experiencia en el aula inmersiva, el metaverso o el podcast cuenta solo si su ruta y sus evidencias están en el repositorio dentro de 5 días hábiles.</p>';
       d.criterios.forEach(function (id) {
         var c = crit(id);
         h += '<div class="stack" style="gap:8px"><div class="crit-h"><div><h3>' + id + ' · ' + (c.momento ? esc(c.momento) + ': ' : '') + esc(c.nombre) + '</h3>' + (c.pregunta ? '<p>' + esc(c.pregunta) + '</p>' : '') + '</div>' + (c.llave ? '<span class="key">Criterio llave</span>' : '') + '</div>' + tablaNiveles(id) +
@@ -2079,7 +2680,7 @@ window.HU_MODULO = function (EA) {
       S.cacheDet = {}; S.resCache = {};   // lo guardado era desde la vista de otra persona
       if (HU) HU.reiniciar();
       api('inicio').then(function (o) {
-        S.boot = o.boot || null; S.hu = o.hu || null;
+        S.boot = o.boot || null; S.hu = o.hu || null; S.re = o.re || null;
         renderWho();
         var vista = S.view, id = S.id;
         if (VISTAS_EVAL[vista] && S.boot) go(S.boot.usuario.role === 'evaluador' ? vista : (vista === 'nuevaVisita' || vista === 'nuevaExperiencia' ? 'registros' : vista), id);
@@ -2129,7 +2730,7 @@ window.HU_MODULO = function (EA) {
   function iniciar() {
     if (DEMO) {
       $('#app').innerHTML = '<div class="loading" style="justify-content:center;padding:80px 16px"><span class="spin"></span>Abriendo EA Conecta…</div>';
-      api('inicio').then(function (o) { S.boot = o.boot || null; S.hu = o.hu || null; abrir(); }).catch(function (e) {
+      api('inicio').then(function (o) { S.boot = o.boot || null; S.hu = o.hu || null; S.re = o.re || null; abrir(); }).catch(function (e) {
         $('#app').innerHTML = '<div class="wrap gut" style="padding-block:60px"><div class="err">' + esc(e.message) + '</div></div>';
       });
       return;
@@ -2150,7 +2751,7 @@ window.HU_MODULO = function (EA) {
       } else {
         try { sessionStorage.removeItem('rea_contenido'); } catch (e) { }   // sin rol de evaluación no se conserva la rúbrica
       }
-      S.boot = o.boot || null; S.hu = o.hu || null; S.huError = o.huError || ''; S.v = o.v;
+      S.boot = o.boot || null; S.hu = o.hu || null; S.re = o.re || null; S.huError = o.huError || ''; S.v = o.v;
       abrir();
     }).catch(function (e) {
       var otra = e.codigo === 'SINACCESO' || e.codigo === 'DOMINIO';

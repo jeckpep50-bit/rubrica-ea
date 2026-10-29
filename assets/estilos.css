@@ -167,7 +167,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; padding: 4px 10px; border-radius: 999px; white-space: nowrap; background: var(--panel); color: var(--ink); }
 .chip.abierta { background: var(--sky); } .chip.revision { background: var(--sun-soft); } .chip.consolidada { background: var(--pink-soft); } .chip.verificada { background: var(--leaf-soft); }
 .chip.me { background: var(--sun); color: var(--on-sun); }
-.chip.lab-Panorama { background: var(--blue-soft); } .chip.lab-Órbita { background: var(--leaf-soft); } .chip.lab-Frecuencia { background: var(--pink-soft); }
+.chip.lab-inmersiva { background: var(--blue-soft); } .chip.lab-metaverso { background: var(--leaf-soft); } .chip.lab-podcast { background: var(--pink-soft); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); }
 .chip.abierta .dot { background: var(--s2); } .chip.revision .dot { background: var(--g5); } .chip.consolidada .dot { background: var(--g3); } .chip.verificada .dot { background: var(--leaf); }
 .lv { display: inline-grid; place-items: center; min-width: 32px; height: 32px; padding: 0 6px; border-radius: 10px; font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--surface); background: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -406,6 +406,27 @@ fieldset.fg legend { padding: 0; margin-bottom: 8px; }
 .chip.hu-completo { background: var(--leaf-soft); } .chip.hu-completo .dot { background: var(--leaf); }
 .chip.hu-parcial { background: var(--sun-soft); } .chip.hu-parcial .dot { background: var(--g5); }
 .chip.hu-pendiente { background: var(--pink-soft); } .chip.hu-pendiente .dot { background: var(--g3); }
+/* Pedir un recurso */
+.tipos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tipos label, .pills label { display: flex; align-items: flex-start; gap: 10px; border: 2px solid var(--line); background: var(--surface); color: var(--ink); border-radius: var(--r-md); padding: 12px 14px; cursor: pointer; }
+.tipos label span { display: flex; flex-direction: column; gap: 2px; }
+.tipos label b { font-size: 15px; } .tipos label small { color: var(--ink-2); font-size: 13px; font-weight: 600; line-height: 1.35; }
+.tipos input, .pills input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--leaf); }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pills label { align-items: center; border-radius: 999px; padding: 9px 16px 9px 12px; min-height: 44px; font-weight: 800; }
+.tipos label.on, .pills label.on { border-color: var(--leaf); background: var(--leaf-soft); }
+.tipos label:focus-within, .pills label:focus-within { outline: 3px solid var(--s2); outline-offset: 2px; }
+.plantillas { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.plantilla { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; border: 2px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); text-decoration: none; }
+.plantilla:hover { border-color: var(--leaf); }
+.plantilla .abrir { margin-top: auto; font-weight: 800; color: var(--ink); text-decoration: underline; }
+.chip.re-recibida { background: var(--blue-soft); } .chip.re-recibida .dot { background: var(--blue); }
+.chip.re-proceso { background: var(--sun-soft); } .chip.re-proceso .dot { background: var(--g5); }
+.chip.re-lista { background: var(--leaf-soft); } .chip.re-lista .dot { background: var(--leaf); }
+.chip.re-entregada { background: var(--panel); } .chip.re-entregada .dot { background: var(--ink-2); }
+.chip.re-cancelada { background: var(--danger-soft); } .chip.re-cancelada .dot { background: var(--danger); }
+.chip.fuera { background: var(--danger-soft); color: var(--ink); }
+@media (max-width: 640px) { .tipos { grid-template-columns: 1fr; } }
 .toolbar.t5 { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)); }
 .hu-regs { min-width: 900px; }
 
