@@ -426,6 +426,9 @@ fieldset.fg legend { padding: 0; margin-bottom: 8px; }
 .chip.re-entregada { background: var(--panel); } .chip.re-entregada .dot { background: var(--ink-2); }
 .chip.re-cancelada { background: var(--danger-soft); } .chip.re-cancelada .dot { background: var(--danger); }
 .chip.fuera { background: var(--danger-soft); color: var(--ink); }
+.tipos.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sec-h h2 .opc { font-style: normal; font-family: var(--body, inherit); font-size: 14px; font-weight: 700; color: var(--ink-2); }
+@media (max-width: 900px) { .tipos.tres { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .tipos { grid-template-columns: 1fr; } }
 .toolbar.t5 { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)); }
 .hu-regs { min-width: 900px; }
