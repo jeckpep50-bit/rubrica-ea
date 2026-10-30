@@ -61,7 +61,7 @@ window.REA_WEB = (function () {
       // Diálogo sobre el portal: lo que estaba en pantalla sigue ahí.
       capa.innerHTML = '<div class="dialogo"><span class="eyebrow">EA Conecta</span><h2>' + esc(titulo) + '</h2><p>' + esc(texto) + '</p><div id="gsiBoton" class="acceso-boton"></div>' + aviso + '</div>';
     } else {
-      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige tu sede: Primaria o Secundaria', 'Elige qué vas a hacer: registrar la huella de tus clases; pedir plantillas o recursos digitales para podcast, aula inmersiva o metaverso; o subir los trabajos de tus estudiantes'];
+      var pasos = opciones.pasos || ['Inicia sesión con tu cuenta institucional', 'Elige tu sede: Primaria o Secundaria', 'Elige qué vas a hacer: registrar la huella de tus clases; pedir recursos digitales para podcast, aula inmersiva o metaverso; subir los trabajos de tus estudiantes; o buscar ideas en el Banco de ideas'];
       capa.innerHTML = franja + '<section class="hero"><div class="wrap gut">' +
         '<div class="hero-marca"><picture><source srcset="assets/logo.png" media="(prefers-color-scheme: dark)"><img src="assets/logo-oscuro.png" alt="Eight Academy · Unidad Educativa" width="560" height="80"></picture>' + franja +
         '<p>' + esc(opciones.sub || 'Departamento de Experiencias de Aprendizaje') + '</p></div>' +

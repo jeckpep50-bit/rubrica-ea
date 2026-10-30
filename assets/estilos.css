@@ -433,6 +433,80 @@ fieldset.fg legend { padding: 0; margin-bottom: 8px; }
 .toolbar.t5 { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)); }
 .hu-regs { min-width: 900px; }
 
+/* ---------------- Banco de ideas ---------------- */
+.ico.c6 { background: var(--s6); }
+.bn-op { flex-direction: row; align-items: center; gap: 18px; margin-top: 20px; }
+.bn-op .ico { flex: none; }
+.bn-op-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.bn-op .acts { margin-top: 0; padding-top: 0; flex: none; }
+.bn-filtros { display: grid; grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.bn-filtros .bn-origen { grid-column: 1 / -1; }
+.bn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.bn-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; text-align: left; background: var(--surface); color: var(--ink);
+  border: 2px solid var(--line); border-top: 6px solid var(--s1); border-radius: var(--r-lg); padding: 14px 16px 14px; box-shadow: var(--shadow); }
+.bn-card:hover { border-color: var(--leaf); }
+.bn-card.t-plantilla { border-top-color: var(--s2); } .bn-card.t-material { border-top-color: var(--s4); } .bn-card.t-proyecto { border-top-color: var(--s5); }
+.bn-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 24px; }
+.bn-tipo { font-size: 12.5px; font-weight: 800; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin-right: auto; }
+.bn-tit { font-family: var(--display); font-size: 18px; font-weight: 600; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.bn-para { font-size: 14px; color: var(--ink-2); font-weight: 600; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.bn-meta { font-size: 13px; color: var(--ink-3); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bn-pie { margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
+.bn-autor { flex: 0 0 auto; max-width: 60%; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bn-fmt { flex: 1 1 0; min-width: 0; text-align: right; color: var(--ink-3); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bn-sello { display: inline-flex; align-items: center; gap: 4px; background: var(--leaf); color: var(--on-leaf); font-size: 12px; font-weight: 800; padding: 3px 10px 3px 7px; border-radius: 999px; white-space: nowrap; }
+.bn-sello svg { width: 14px; height: 14px; stroke-width: 3; }
+.bn-sec { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.bn-sec-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.bn-sec-h h2 { margin: 0; font-size: 22px; font-weight: 700; }
+.bn-sec-h p { margin: 2px 0 0; }
+.bn-sec + .bn-sec, .bn-mas + .bn-sec, .bn-sec + .bn-invita { margin-top: 28px; }
+.bn-mas { text-align: center; margin: 4px 0 0; }
+.bn-uso { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--sky-soft); border-radius: var(--r-md); padding: 12px 16px; }
+.bn-uso.oficial { background: var(--leaf-soft); }
+.bn-uso p { margin: 0; flex: 1 1 260px; }
+.bn-colega { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); font-size: 12.5px; font-weight: 800; padding: 4px 10px 4px 7px; border-radius: 999px; white-space: nowrap; }
+.bn-colega svg { width: 16px; height: 16px; color: var(--leaf); }
+.bn-arch { grid-template-columns: 42px minmax(0, 1fr) auto; }
+.bn-arch .ev-sub { white-space: normal; }
+.bn-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.bn-ayuda { background: var(--panel); border-radius: var(--r-md); padding: 10px 14px; font-size: 14px; }
+.bn-ayuda summary { cursor: pointer; font-weight: 800; }
+.bn-ayuda ul { margin: 8px 0 2px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); }
+label.check { display: flex; align-items: flex-start; gap: 10px; border: 2px solid var(--line); background: var(--surface); border-radius: var(--r-md); padding: 12px 14px; cursor: pointer; }
+label.check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--leaf); }
+label.check span { display: flex; flex-direction: column; gap: 2px; }
+label.check small { color: var(--ink-2); font-size: 13px; font-weight: 600; line-height: 1.35; }
+label.check:has(input:checked) { border-color: var(--leaf); background: var(--leaf-soft); }
+label.check:focus-within { outline: 3px solid var(--s2); outline-offset: 2px; }
+textarea.corta { min-height: 64px; }
+button.link { background: none; border: 0; padding: 0; color: var(--ink-2); font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+button.link:hover { color: var(--ink); }
+.bn-rep { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--surface); border-radius: var(--r-sm); padding: 8px 10px; }
+.bn-rep .btn { margin-left: auto; }
+.bn-modi { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.bn-modi .main { display: flex; flex-direction: column; gap: 4px; min-width: 0; align-items: flex-start; }
+.bn-modi .main > b { font-size: 16px; }
+.bn-invita, .bn-adaptar { gap: 12px; }
+button.plantilla { font: inherit; text-align: left; cursor: pointer; width: 100%; }
+.bn-base .row { gap: 8px; }
+@media (max-width: 1020px) {
+  .bn-filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bn-filtros .q { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .bn-op { flex-direction: column; align-items: flex-start; }
+  .bn-op .acts { width: 100%; }
+}
+@media (max-width: 620px) {
+  .bn-grid { grid-template-columns: 1fr; }
+  .bn-arch { grid-template-columns: 42px minmax(0, 1fr); }
+  .bn-arch .bn-acts { grid-column: 1 / -1; justify-content: flex-start; }
+  .bn-modi { grid-template-columns: 1fr; }
+  .bn-modi .bn-acts { justify-content: flex-start; }
+  .bn-filtros .bn-origen button { flex: 1 1 auto; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 
 @media (max-width: 1020px) {
